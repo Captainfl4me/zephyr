@@ -1,0 +1,5 @@
+# Copyright (c) 2025 Nicolas THIERRY <nicolas.thierry@estaca.eu>
+# SPDX-License-Identifier: Apache-2.0
+
+config SHIELD_ST87M01
+	def_bool $(shields_list_contains,shield_st87m01)

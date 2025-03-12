@@ -1,0 +1,16 @@
+/* Copyright (c) 2025 Nicolas THIERRY <nicolas.thierry@estaca.eu>
+*
+* SPDX-License-Identifier: Apache-2.0
+*/
+
+&arduino_serial {
+	current-speed = <115200>;
+	status = "okay";
+
+	st87m01: st87m01 {
+		compatible = "st,87m01";
+		mdm-reset-gpios = <&arduino_header 15 0>;
+		mdm-dcdc-gpios = <&arduino_header 8 0>;
+		status = "okay";
+	};
+};

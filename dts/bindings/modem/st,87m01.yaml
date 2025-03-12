@@ -1,0 +1,16 @@
+# Copyright (c) 2025 Nicolas THIERRY <nicolas.thierry@estaca.eu>
+# SPDX-License-Identifier: Apache-2.0
+
+description: ST87M01 NBIoT modem
+
+compatible: "st,87m01"
+
+include: uart-device.yaml
+
+properties:
+  mdm-reset-gpios:
+    type: phandle-array
+    required: true
+
+  mdm-dcdc-gpios:
+    type: phandle-array
