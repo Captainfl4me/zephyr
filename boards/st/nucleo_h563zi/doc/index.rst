@@ -167,6 +167,8 @@ The Zephyr nucleo_h563zi board configuration supports the following hardware fea
 +-----------+------------+-------------------------------------+
 | I2C       | on-chip    | i2c bus                             |
 +-----------+------------+-------------------------------------+
+| I3C       | on-chip    | i3c bus                             |
++-----------+------------+-------------------------------------+
 | UART      | on-chip    | serial port-polling;                |
 |           |            | serial port-interrupt               |
 +-----------+------------+-------------------------------------+
@@ -222,6 +224,7 @@ Default Zephyr Peripheral Mapping:
 - SPI1 SCK/MISO/MOSI/CS: PA5/PG9/PB5/PD14
 - UART3 TX/RX : PD8/PD9 (VCP)
 - USER_PB : PC13
+- I3C1: PD12(SCL) & PD13(SDA)
 
 System Clock
 ------------
@@ -258,7 +261,7 @@ OpenOCD Support
 
 For now, openocd support  for stm32h5 is not available on upstream OpenOCD.
 You can check `OpenOCD official Github mirror`_.
-In order to use it though, you should clone from the cutomized
+In order to use it though, you should clone from the customized
 `STMicroelectronics OpenOCD Github`_ and compile it following usual README guidelines.
 Once it is done, you can set the OPENOCD and OPENOCD_DEFAULT_PATH variables in
 :zephyr_file:`boards/st/nucleo_h563zi/board.cmake` to point the build

@@ -95,6 +95,11 @@ The current minimum required version for the main dependencies are:
               python3-dev python3-pip python3-setuptools python3-tk python3-wheel xz-utils file \
               make gcc gcc-multilib g++-multilib libsdl2-dev libmagic1
 
+         .. note::
+
+            Due to the unavailability of ``gcc-multilib`` and ``g++-multilib`` on AArch64
+            (ARM64) systems, you may need to remove them from the list of packages to install.
+
       #. Verify the versions of the main dependencies installed on your system by entering:
 
          .. code-block:: bash
@@ -186,11 +191,11 @@ The current minimum required version for the main dependencies are:
          .. code-block:: bat
 
             choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System'
-            choco install ninja gperf python311 git dtc-msys2 wget 7zip
+            choco install ninja gperf python311 git dtc-msys2 wget 7zip strawberryperl
 
          .. warning::
 
-            As of November 2023, Python 3.12 is not recommended for Zephyr development on Windows,
+            As of November 2024, Python 3.13 is not recommended for Zephyr development on Windows,
             as some required Python dependencies may be difficult to install.
 
       #. Close the terminal window.
@@ -207,8 +212,10 @@ Get Zephyr and install Python dependencies
 ******************************************
 
 Next, clone Zephyr and its :ref:`modules <modules>` into a new :ref:`west
-<west>` workspace named :file:`zephyrproject`. You'll also install Zephyr's
-additional Python dependencies in a `Python virtual environment`_.
+<west>` workspace. In the following instructions the name :file:`zephyrproject`
+is used for the workspace, however in practice its name and location can be freely
+chosen. You'll also install Zephyr's additional Python dependencies in a
+`Python virtual environment`_.
 
 .. _Python virtual environment: https://docs.python.org/3/library/venv.html
 
@@ -265,12 +272,12 @@ additional Python dependencies in a `Python virtual environment`_.
 
             west zephyr-export
 
-      #. Zephyr's ``scripts/requirements.txt`` file declares additional Python
-         dependencies. Install them with ``pip``.
+      #. The Zephyr west extension command, ``west packages`` can be used to install Python
+         dependencies.
 
          .. code-block:: bash
 
-            pip install -r ~/zephyrproject/zephyr/scripts/requirements.txt
+            west packages pip --install
 
    .. group-tab:: macOS
 
@@ -317,12 +324,12 @@ additional Python dependencies in a `Python virtual environment`_.
 
             west zephyr-export
 
-      #. Zephyr's ``scripts/requirements.txt`` file declares additional Python
-         dependencies. Install them with ``pip``.
+      #. The Zephyr west extension command, ``west packages`` can be used to install Python
+         dependencies.
 
          .. code-block:: bash
 
-            pip install -r ~/zephyrproject/zephyr/scripts/requirements.txt
+            west packages pip --install
 
    .. group-tab:: Windows
 
@@ -372,12 +379,12 @@ additional Python dependencies in a `Python virtual environment`_.
 
             west zephyr-export
 
-      #. Zephyr's ``scripts\requirements.txt`` file declares additional Python
-         dependencies. Install them with ``pip``.
+      #. The Zephyr west extension command, ``west packages`` can be used to install Python
+         dependencies.
 
          .. code-block:: bat
 
-            pip install -r %HOMEPATH%\zephyrproject\zephyr\scripts\requirements.txt
+            west packages pip --install
 
 Install the Zephyr SDK
 **********************

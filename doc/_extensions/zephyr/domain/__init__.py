@@ -2,7 +2,7 @@
 Zephyr Extension
 ################
 
-Copyright (c) 2023 The Linux Foundation
+Copyright (c) 2023-2025 The Linux Foundation
 SPDX-License-Identifier: Apache-2.0
 
 This extension adds a new ``zephyr`` domain for handling the documentation of various entities
@@ -26,15 +26,18 @@ Roles
 
 """
 
+import json
+import re
 import sys
+from collections.abc import Iterator
 from os import path
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Tuple, Final
+from typing import Any
 
+from anytree import ChildResolverError, Node, PreOrderIter, Resolver, search
 from docutils import nodes
 from docutils.parsers.rst import directives
 from docutils.statemachine import StringList
-
 from sphinx import addnodes
 from sphinx.application import Sphinx
 from sphinx.domains import Domain, ObjType
@@ -51,22 +54,54 @@ from sphinx.util.template import SphinxRenderer
 from zephyr.doxybridge import DoxygenGroupDirective
 from zephyr.gh_utils import gh_link_get_url
 
-
-import json
-
-from anytree import Node, Resolver, ChildResolverError, PreOrderIter, search
-
 __version__ = "0.2.0"
 
-ZEPHYR_BASE = Path(__file__).parents[4]
 
-sys.path.insert(0, str(ZEPHYR_BASE / "scripts/dts/python-devicetree/src"))
+sys.path.insert(0, str(Path(__file__).parents[4] / "scripts/dts/python-devicetree/src"))
 sys.path.insert(0, str(Path(__file__).parents[3] / "_scripts"))
 
 from gen_boards_catalog import get_catalog
 
+ZEPHYR_BASE = Path(__file__).parents[4]
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 RESOURCES_DIR = Path(__file__).parent / "static"
+
+# Load and parse binding types from text file
+BINDINGS_TXT_PATH = ZEPHYR_BASE / "dts" / "bindings" / "binding-types.txt"
+ACRONYM_PATTERN = re.compile(r'([a-zA-Z0-9-]+)\s*\((.*?)\)')
+BINDING_TYPE_TO_DOCUTILS_NODE = {}
+
+
+def parse_text_with_acronyms(text):
+    """Parse text that may contain acronyms into a list of nodes."""
+    result = nodes.inline()
+    last_end = 0
+
+    for match in ACRONYM_PATTERN.finditer(text):
+        # Add any text before the acronym
+        if match.start() > last_end:
+            result += nodes.Text(text[last_end : match.start()])
+
+        # Add the acronym
+        abbr, explanation = match.groups()
+        result += nodes.abbreviation(abbr, abbr, explanation=explanation)
+        last_end = match.end()
+
+    # Add any remaining text
+    if last_end < len(text):
+        result += nodes.Text(text[last_end:])
+
+    return result
+
+
+with open(BINDINGS_TXT_PATH) as f:
+    for line in f:
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+
+        key, value = line.split('\t', 1)
+        BINDING_TYPE_TO_DOCUTILS_NODE[key] = parse_text_with_acronyms(value)
 
 logger = logging.getLogger(__name__)
 
@@ -253,6 +288,7 @@ class ConvertBoardNode(SphinxTransform):
             sidebar += field_list
 
             details = [
+                ("Name", nodes.literal(text=node["id"])),
                 ("Vendor", node["vendor"]),
                 ("Architecture", ", ".join(node["archs"])),
                 ("SoC", ", ".join(node["socs"])),
@@ -262,10 +298,28 @@ class ConvertBoardNode(SphinxTransform):
                 field = nodes.field()
                 field_name = nodes.field_name(text=property_name)
                 field_body = nodes.field_body()
-                field_body += nodes.paragraph(text=value)
+                if isinstance(value, nodes.Node):
+                    field_body += value
+                else:
+                    field_body += nodes.paragraph(text=value)
                 field += field_name
                 field += field_body
                 field_list += field
+
+            gh_link = gh_link_get_url(self.app, self.env.docname)
+            gh_link_button = nodes.raw(
+                "",
+                f"""
+                <div id="board-github-link">
+                    <a href="{gh_link}/../.." class="btn btn-info fa fa-github"
+                        target="_blank">
+                        Browse board sources
+                    </a>
+                </div>
+                """,
+                format="html",
+            )
+            sidebar += gh_link_button
 
             # Move the sibling nodes under the new section
             new_section.extend(siblings_to_move)
@@ -291,10 +345,10 @@ class CodeSampleCategoriesTocPatching(SphinxPostTransform):
         reference = nodes.reference(
             "",
             "",
+            *[nodes.Text(tree.category["name"])],
             internal=True,
             refuri=docname,
             anchorname="",
-            *[nodes.Text(tree.category["name"])],
             classes=["category-link"],
         )
         compact_paragraph += reference
@@ -324,10 +378,10 @@ class CodeSampleCategoriesTocPatching(SphinxPostTransform):
                 sample_xref = nodes.reference(
                     "",
                     "",
+                    *[nodes.Text(code_sample["name"])],
                     internal=True,
                     refuri=code_sample["docname"],
                     anchorname="",
-                    *[nodes.Text(code_sample["name"])],
                     classes=["code-sample-link"],
                 )
                 sample_xref["reftitle"] = code_sample["description"].astext()
@@ -410,7 +464,8 @@ class ProcessCodeSampleListingNode(SphinxPostTransform):
                     "",
                     """
                     <div class="cs-search-bar">
-                      <input type="text" class="cs-search-input" placeholder="Filter code samples..." onkeyup="filterSamples(this)">
+                      <input type="text" class="cs-search-input"
+                             placeholder="Filter code samples..." onkeyup="filterSamples(this)">
                       <i class="fa fa-search"></i>
                     </div>
                     """,
@@ -428,7 +483,8 @@ class ProcessCodeSampleListingNode(SphinxPostTransform):
 
                 category_node = search.find(
                     code_samples_categories_tree,
-                    lambda node: hasattr(node, "category") and node.category["id"] == category,
+                    lambda node, category=category: hasattr(node, "category")
+                    and node.category["id"] == category,
                 )
                 self.output_sample_categories_sections(category_node, container)
 
@@ -667,6 +723,7 @@ class BoardDirective(SphinxDirective):
             board_node = BoardNode(id=board_name)
             board_node["full_name"] = board["full_name"]
             board_node["vendor"] = vendors.get(board["vendor"], board["vendor"])
+            board_node["supported_features"] = board["supported_features"]
             board_node["archs"] = board["archs"]
             board_node["socs"] = board["socs"]
             board_node["image"] = board["image"]
@@ -690,11 +747,143 @@ class BoardCatalogDirective(SphinxDirective):
                     "boards": domain_data["boards"],
                     "vendors": domain_data["vendors"],
                     "socs": domain_data["socs"],
+                    "hw_features_present": self.env.app.config.zephyr_generate_hw_features,
                 },
             )
             return [nodes.raw("", rendered, format="html")]
         else:
             return [nodes.paragraph(text="Board catalog is only available in HTML.")]
+
+
+class BoardSupportedHardwareDirective(SphinxDirective):
+    """A directive for showing the supported hardware features of a board."""
+
+    has_content = False
+    required_arguments = 0
+    optional_arguments = 0
+
+    def run(self):
+        env = self.env
+        docname = env.docname
+
+        matcher = NodeMatcher(BoardNode)
+        board_nodes = list(self.state.document.traverse(matcher))
+        if not board_nodes:
+            logger.warning(
+                "board-supported-hw directive must be used in a board documentation page.",
+                location=(docname, self.lineno),
+            )
+            return []
+
+        board_node = board_nodes[0]
+        supported_features = board_node["supported_features"]
+        result_nodes = []
+
+        paragraph = nodes.paragraph()
+        paragraph += nodes.Text("The ")
+        paragraph += nodes.literal(text=board_node["id"])
+        paragraph += nodes.Text(" board supports the hardware features listed below.")
+        result_nodes.append(paragraph)
+
+        if not env.app.config.zephyr_generate_hw_features:
+            note = nodes.admonition()
+            note += nodes.title(text="Note")
+            note["classes"].append("warning")
+            note += nodes.paragraph(
+                text="The list of supported hardware features was not generated. Run a full "
+                "documentation build for the required metadata to be available."
+            )
+            result_nodes.append(note)
+            return result_nodes
+
+        # Add the note before any tables
+        note = nodes.admonition()
+        note += nodes.title(text="Note")
+        note["classes"].append("note")
+        note += nodes.paragraph(
+            text="The tables below were automatically generated using information from the "
+            "Devicetree. They may not be fully representative of all the hardware features "
+            "supported by the board."
+        )
+        result_nodes.append(note)
+
+        for target, features in sorted(supported_features.items()):
+            if not features:
+                continue
+
+            target_heading = nodes.section(ids=[f"{board_node['id']}-{target}-hw-features"])
+            heading = nodes.title()
+            heading += nodes.literal(text=target)
+            heading += nodes.Text(" target")
+            target_heading += heading
+            result_nodes.append(target_heading)
+
+            table = nodes.table(classes=["colwidths-given"])
+            tgroup = nodes.tgroup(cols=3)
+
+            tgroup += nodes.colspec(colwidth=20, classes=["col-1"])
+            tgroup += nodes.colspec(colwidth=50)
+            tgroup += nodes.colspec(colwidth=30)
+
+            thead = nodes.thead()
+            row = nodes.row()
+            headers = ["Type", "Description", "Compatible"]
+            for header in headers:
+                row += nodes.entry("", nodes.paragraph(text=header))
+            thead += row
+            tgroup += thead
+
+            tbody = nodes.tbody()
+
+            def feature_sort_key(feature):
+                # Put "CPU" first. Later updates might also give priority to features
+                # like "sensor"s, for example.
+                if feature == "cpu":
+                    return (0, feature)
+                return (1, feature)
+
+            sorted_features = sorted(features.keys(), key=feature_sort_key)
+
+            for feature in sorted_features:
+                items = list(features[feature].items())
+                num_items = len(items)
+
+                for i, (key, value) in enumerate(items):
+                    row = nodes.row()
+
+                    # Add type column only for first row of a feature
+                    if i == 0:
+                        type_entry = nodes.entry(morerows=num_items - 1)
+                        type_entry += nodes.paragraph(
+                            "",
+                            "",
+                            BINDING_TYPE_TO_DOCUTILS_NODE.get(
+                                feature, nodes.Text(feature)
+                            ).deepcopy(),
+                        )
+                        row += type_entry
+
+                    row += nodes.entry("", nodes.paragraph(text=value))
+
+                    # Create compatible xref
+                    xref = addnodes.pending_xref(
+                        "",
+                        refdomain="std",
+                        reftype="dtcompatible",
+                        reftarget=key,
+                        refexplicit=False,
+                        refwarn=True,
+                    )
+                    xref += nodes.literal(text=key)
+                    row += nodes.entry("", nodes.paragraph("", "", xref))
+
+                    tbody += row
+
+            tgroup += tbody
+            table += tgroup
+            result_nodes.append(table)
+
+        return result_nodes
 
 
 class ZephyrDomain(Domain):
@@ -715,15 +904,16 @@ class ZephyrDomain(Domain):
         "code-sample-category": CodeSampleCategoryDirective,
         "board-catalog": BoardCatalogDirective,
         "board": BoardDirective,
+        "board-supported-hw": BoardSupportedHardwareDirective,
     }
 
-    object_types: Dict[str, ObjType] = {
+    object_types: dict[str, ObjType] = {
         "code-sample": ObjType("code sample", "code-sample"),
         "code-sample-category": ObjType("code sample category", "code-sample-category"),
         "board": ObjType("board", "board"),
     }
 
-    initial_data: Dict[str, Any] = {
+    initial_data: dict[str, Any] = {
         "code-samples": {},  # id -> code sample data
         "code-samples-categories": {},  # id -> code sample category data
         "code-samples-categories-tree": Node("samples"),
@@ -750,11 +940,12 @@ class ZephyrDomain(Domain):
         self.data["has_code_sample_listing"].pop(docname, None)
         self.data["has_board_catalog"].pop(docname, None)
 
-    def merge_domaindata(self, docnames: List[str], otherdata: Dict) -> None:
+    def merge_domaindata(self, docnames: list[str], otherdata: dict) -> None:
         self.data["code-samples"].update(otherdata["code-samples"])
         self.data["code-samples-categories"].update(otherdata["code-samples-categories"])
 
-        # self.data["boards"] contains all the boards right from builder-inited time, but it still # potentially needs merging since a board's docname property is set by BoardDirective to
+        # self.data["boards"] contains all the boards right from builder-inited time, but it still
+        # potentially needs merging since a board's docname property is set by BoardDirective to
         # indicate the board is documented in a specific document.
         for board_name, board in otherdata["boards"].items():
             if "docname" in board:
@@ -815,7 +1006,7 @@ class ZephyrDomain(Domain):
                 )
 
     # used by Sphinx Immaterial theme
-    def get_object_synopses(self) -> Iterator[Tuple[Tuple[str, str], str]]:
+    def get_object_synopses(self) -> Iterator[tuple[tuple[str, str], str]]:
         for _, code_sample in self.data["code-samples"].items():
             yield (
                 (code_sample["docname"], code_sample["id"]),
@@ -832,7 +1023,7 @@ class ZephyrDomain(Domain):
         else:
             return
 
-        if elem:
+        if elem and "docname" in elem:
             if not node.get("refexplicit"):
                 contnode = [nodes.Text(elem["name"] if type != "board" else elem["full_name"])]
 
@@ -895,7 +1086,7 @@ class ZephyrDomain(Domain):
 class CustomDoxygenGroupDirective(DoxygenGroupDirective):
     """Monkey patch for Breathe's DoxygenGroupDirective."""
 
-    def run(self) -> List[Node]:
+    def run(self) -> list[Node]:
         nodes = super().run()
 
         if self.config.zephyr_breathe_insert_related_samples:
@@ -935,7 +1126,11 @@ def install_static_assets_as_needed(
 
 
 def load_board_catalog_into_domain(app: Sphinx) -> None:
-    board_catalog = get_catalog()
+    board_catalog = get_catalog(
+        generate_hw_features=(
+            app.builder.format == "html" and app.config.zephyr_generate_hw_features
+        )
+    )
     app.env.domaindata["zephyr"]["boards"] = board_catalog["boards"]
     app.env.domaindata["zephyr"]["vendors"] = board_catalog["vendors"]
     app.env.domaindata["zephyr"]["socs"] = board_catalog["socs"]
@@ -943,6 +1138,7 @@ def load_board_catalog_into_domain(app: Sphinx) -> None:
 
 def setup(app):
     app.add_config_value("zephyr_breathe_insert_related_samples", False, "env")
+    app.add_config_value("zephyr_generate_hw_features", False, "env")
 
     app.add_domain(ZephyrDomain)
 

@@ -161,6 +161,28 @@ mapping:
          type: seq
          sequence:
             - type: str
+  package-managers:
+    required: false
+    type: map
+    mapping:
+      pip:
+        required: false
+        type: map
+        mapping:
+          requirement-files:
+            required: false
+            type: seq
+            sequence:
+              - type: str
+  runners:
+    required: false
+    type: seq
+    sequence:
+      - type: map
+        mapping:
+          file:
+            required: true
+            type: str
 '''
 
 MODULE_YML_PATH = PurePath('zephyr/module.yml')
