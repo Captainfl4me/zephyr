@@ -36,7 +36,7 @@ if (CONFIG_MODEM_SIM7080)
 endif()
 
 if (CONFIG_MODEM_ST87M01)
-  FILE(GLOB st87_eclib_sources src/ST87_ECLIB/Core/src/*.c src/ST87_ECLIB/Cust/src/*.c)
+  FILE(GLOB st87_eclib_sources ST87_ECLIB/Core/src/*.c ST87_ECLIB/Cust/src/*.c)
 	zephyr_library_sources(st87m01.c ${st87_eclib_sources})
 endif()
 
