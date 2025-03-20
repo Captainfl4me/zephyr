@@ -10,7 +10,7 @@
 	st_87m01: st_87m01 {
 		compatible = "st,87m01";
 		mdm-reset-gpios = <&arduino_header 15 0>;
-		mdm-dcdc-gpios = <&arduino_header 8 0>;
+		mdm-ring-gpios = <&arduino_header 8 0>;
 		status = "okay";
 	};
 };

@@ -12,5 +12,6 @@ properties:
     type: phandle-array
     required: true
 
-  mdm-dcdc-gpios:
+  mdm-ring-gpios:
     type: phandle-array
+    required: true
