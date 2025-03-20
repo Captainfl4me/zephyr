@@ -3,11 +3,11 @@
   * @file    st87ec_lib.h
   * @author  APMS Application Team
   * @brief   Interface header file
-  *          
+  *
   @verbatim
   @endverbatim
   ******************************************************************************
-  * @attention 
+  * @attention
   *
   * Copyright (c) 2024 STMicroelectronics International N.V.
   * All rights reserved.
@@ -37,7 +37,7 @@
 
 /* Types ---------------------------------------------------------------------*/
 
-/** 
+/**
  * Output value of the API functions.
  */
 typedef enum{
@@ -48,14 +48,14 @@ typedef enum{
   RESULT_BAD_SEQUENCING = 4                       /**< Function gets bad FSM state sequencing */
 } ST87EC_Lib_Result_t;
 
-/** 
+/**
  * Output value of the SIM status.
  */
 typedef enum{
   SIM_STATUS_SIM_INVALID = 0,                     /**< SIM is invalid.            */
   SIM_STATUS_SIM_VALID   = 1,                     /**< SIM is valid.              */
   SIM_STATUS_UNKNOWN     = 0xFF,                  /**< SIM status is unknown.     */
-} ST87EC_Lib_SimStatus_t; 
+} ST87EC_Lib_SimStatus_t;
 
 /**
  * Output value of the module initialization.
@@ -65,14 +65,14 @@ typedef enum{
   INIT_COMPLETE = 1,                              /**< Module initialization is complete.     */
 } ST87Ec_Lib_InitComplete_t;
 
-/** 
+/**
  * Output value of the connection status.
  */
 typedef enum{
   CONN_STATUS_IDLE         = 0,                   /**< The stack is in IDLE state.          */
   CONN_STATUS_CONNECTED    = 1,                   /**< The stack is in CONNECTED state.     */
   CONN_STATUS_UNKNOWN      = 0xFF,                /**< The stack is in unknown state.       */
-} ST87EC_Lib_ConnectionStatus_t; 
+} ST87EC_Lib_ConnectionStatus_t;
 
 /**
  * Output value of the registration status.
@@ -100,7 +100,7 @@ typedef enum {
 } ST87EC_Lib_LastPacket_t;
 
 
-/** 
+/**
  * Sleep/wakeup status of the module.
  */
 typedef enum{
@@ -152,7 +152,7 @@ typedef enum{
   ST87_BIN_DATA_TRANSFER_BUSY    = 2,              /**< Binary transfer status BUSY user side for EC Lib ST87 Loader */
 } ST87EC_Lib_BinTransferStatus_t;
 
-/** 
+/**
  * Structure for the status request.
  */
 typedef struct{
@@ -280,7 +280,7 @@ typedef void (ST87EC_Lib_GenericErrorCallback_t) (ST87EC_Lib_SequenceValue_t Fai
 
 /**
 * @brief Callback called to get the ST87M01 system time
-* 
+*
 * @param pString: pointer to the returned string (read only pointer).
 */
 typedef void (ST87EC_Lib_GetTimeCallback_t) (char const * const pString);
@@ -316,8 +316,6 @@ ST87EC_Lib_Result_t ST87EC_Lib_NBIOT_HttpOpen(char * pHost, uint32_t PortNb, int
 ST87EC_Lib_Result_t ST87EC_Lib_NBIOT_HttpTransfer(ST87EC_Lib_HttpTransferObject_t * pHttpTransferObject);
 ST87EC_Lib_Result_t ST87EC_Lib_NBIOT_HttpClose(uint32_t Timeout);
 ST87EC_Lib_Result_t ST87EC_Lib_WMBUS_Transfer(const ST87EC_Lib_WmbusObject_t * pWmbusObject);
-ST87EC_Lib_Result_t ST87EC_Lib_NBIOT_Loader(ST87EC_Lib_BinToLoad_t BinaryId, uint32_t BinLength, uint32_t Timeout);
-ST87EC_Lib_BinTransferStatus_t ST87EC_Lib_NBIOT_GetBinDataForLoaderCallback(uint32_t * pBinDataAddr, uint8_t NbBytesToTransfer);
 
 #endif /* ST87EC_LIB_H */
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

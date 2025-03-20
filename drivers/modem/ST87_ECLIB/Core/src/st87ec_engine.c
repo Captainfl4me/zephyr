@@ -219,10 +219,6 @@ ST87EC_Lib_Result_t ST87EC_Lib_SequenceMain(void)
       result = ST87EC_SequenceWmbus_Transfer();
       break;
 
-    case SEQUENCE_LOADER:
-      result = ST87EC_SequenceSys_Loader();
-      break;
-
     default:
       break;
   }
@@ -479,7 +475,7 @@ static inline void ST87EC_Lib_ExtraSequenceProcessHandling(void)
     {
       /* Wake up the module when new sequence */
       ST87EC_WAKEUP_MODULE();
-      EcLibVars.PreviousSequence = EcLibVars.OnGoingSequence; 
+      EcLibVars.PreviousSequence = EcLibVars.OnGoingSequence;
       EcLibVars.ErrorOccurredInSeq = 0; /* reset error indication at start of seq */
     }
   }

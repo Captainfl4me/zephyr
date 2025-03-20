@@ -648,38 +648,4 @@ ST87EC_Lib_Result_t ST87EC_Lib_WMBUS_Transfer(const ST87EC_Lib_WmbusObject_t* pW
     return (result);
 }
 
-/**
- * @brief API launching a ST87 binary loading
- *
- * @param BinaryId: name of the binary to upload to ST87 Boot
- * @param BinLength: Length of the binary to load
- * @param Timeout: Timeout in ms after which the request is cancelled
- * @retval Result: API execution status
- */
-ST87EC_Lib_Result_t ST87EC_Lib_NBIOT_Loader(ST87EC_Lib_BinToLoad_t BinaryId, uint32_t BinLength, uint32_t Timeout)
-{
-    ST87EC_Lib_Result_t result = RESULT_OK;
-
-    if ((BinLength == 0) || (Timeout == 0)) {
-        result = RESULT_BAD_PARAM;
-    } else if (EcLibVars.OnGoingSequence != SEQUENCE_NONE) {
-        result = RESULT_BUSY;
-    } else {
-        /* Save the parameter */
-        EcLibVars.SequenceSys.Loader.Params.BinaryId = BinaryId;
-        EcLibVars.SequenceSys.Loader.Params.BinaryLength = BinLength;
-        EcLibVars.SequenceSys.Loader.Params.Timeout = Timeout;
-        /* Register the request in the EC library */
-
-        EcLibVars.OnGoingSequence = SEQUENCE_LOADER;
-        EcLibVars.SequenceSys.Loader.FsmState = LOADER_STATE_INIT;
-    }
-    return result;
-}
-
-ST87EC_Lib_BinTransferStatus_t ST87EC_Lib_NBIOT_GetBinDataForLoaderCallback(uint32_t * pBinDataAddr, uint8_t NbBytesToTransfer) {
-	pBinDataAddr = 0x00;
-	return ST87_BIN_DATA_TRANSFER_KO;
-}
-
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

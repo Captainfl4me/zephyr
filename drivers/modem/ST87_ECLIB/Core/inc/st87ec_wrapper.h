@@ -71,7 +71,6 @@ uint32_t ST87EC_Wrapper_GetSt87CurrRxMsg(char * pRxMsgHandle, uint32_t ExpectedL
 uint32_t ST87EC_Wrapper_WakeUp(void);
 uint32_t ST87EC_Wrapper_SendCmdToBoot(const char * format,...);
 ST87EC_Lib_Result_t ST87EC_Wrapper_GetSt87BootNbBytesToUpload(uint8_t * ByteToRead);
-ST87EC_Lib_Result_t ST87EC_Wrapper_UartInit(void);
 #endif /* ST87EC_WRAPPER_H */
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

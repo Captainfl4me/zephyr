@@ -34,7 +34,6 @@
 /* Exported functions --------------------------------------------------------*/
 ST87EC_Lib_Result_t ST87EC_SequenceSys_GetTime(void);
 ST87EC_Lib_Result_t ST87EC_SequenceSys_ColdParamInit(void);
-ST87EC_Lib_Result_t ST87EC_SequenceSys_Loader(void);
 
 #endif /* ST87EC_SEQUENCE_SYS_H */
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

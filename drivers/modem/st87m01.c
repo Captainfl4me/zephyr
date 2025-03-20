@@ -3,11 +3,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "./ST87_ECLIB/Core/inc/st87ec_lib.h"
 #include <zephyr/logging/log.h>
 #include <zephyr/net/net_if.h>
 #include "st87m01.h"
 
 LOG_MODULE_REGISTER(modem_st87m01, CONFIG_MODEM_LOG_LEVEL);
+
+static void modem_reset(void);
+static void offload_iface_init(struct net_if *iface);
+
+static struct offloaded_if_api api_funcs = {
+	.iface_api.init = offload_iface_init,
+};
+
+void eclib_error_cb(ST87EC_Lib_SequenceValue_t FaillingSequence, ST87EC_Lib_ErrorCode_t Error)
+{
+    LOG_ERR("ECLIB ERR: SEQ = %d, ERROR = %d", FaillingSequence, Error);
+}
 
 /*
  * Initializes modem handlers and context.
@@ -19,6 +32,8 @@ static int modem_init(const struct device *dev)
 	int ret = 0;
 	ARG_UNUSED(dev);
 	LOG_DBG("ST87M01 Init");
+	ST87EC_Lib_Status_t pstate;
+	ST87EC_Lib_Result_t res = ST87EC_Lib_Init(eclib_error_cb);
 
 	mctx.data_manufacturer = mdata.mdm_manufacturer;
 	mctx.data_model = mdata.mdm_model;
@@ -51,5 +66,6 @@ static void offload_iface_init(struct net_if *iface)
 }
 
 /* Register device with the networking stack. */
-NET_DEVICE_DT_INST_OFFLOAD_DEFINE(0, modem_init, NULL, &mdata, NULL, CONFIG_MODEM_ST87M01_INIT_PRIORITY,
-				  &api_funcs, MDM_MAX_DATA_LENGTH);
+NET_DEVICE_DT_INST_OFFLOAD_DEFINE(0, modem_init, NULL, &mdata, NULL,
+				  CONFIG_MODEM_ST87M01_INIT_PRIORITY, &api_funcs,
+				  MDM_MAX_DATA_LENGTH);

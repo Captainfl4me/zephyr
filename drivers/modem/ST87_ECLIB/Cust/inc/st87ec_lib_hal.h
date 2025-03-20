@@ -38,14 +38,8 @@ ST87EC_Lib_Result_t ST87EC_Lib_Hal_GpioInit(void);
 ST87EC_Lib_Result_t ST87EC_Lib_Hal_DriveResetGpio(uint32_t State);
 ST87EC_Lib_Result_t ST87EC_Lib_Hal_RingPinIsr(void);
 ST87EC_Lib_Result_t ST87EC_Lib_Hal_EnableUartInterrupts(uint8_t Flag);
-ST87EC_Lib_Result_t ST87EC_Lib_Hal_UartIsr(void);
-ST87EC_Lib_Result_t ST87EC_Lib_Hal_UartTxByte(uint8_t Byte);
-uint8_t ST87EC_Lib_Hal_UartRxByte(void);
-bool ST87EC_Lib_Hal_UartGetStatusFlag(ST87EC_Lib_UartChannel_t UartChan, uint8_t StsFlagToGet);
-ST87EC_Lib_Result_t ST87EC_Lib_Hal_UartClearFlags(ST87EC_Lib_UartChannel_t UartChan, uint8_t FlagToClear);
 ST87EC_Lib_Result_t ST87EC_Lib_Hal_TickIsr(void);
 ST87EC_Lib_Result_t ST87EC_Lib_Hal_SetHostUartBaudrate(uint32_t BaudRate);
-uint32_t ST87EC_Lib_Hal_GetHostUartBaudrate(void);
 
 #endif /* ST87EC_HAL_LIB_H */
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
