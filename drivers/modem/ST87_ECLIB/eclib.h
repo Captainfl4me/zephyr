@@ -61,6 +61,32 @@ typedef enum {
 } eclib_result_t;
 
 /**
+ * Output value of the SIM status.
+ */
+typedef enum{
+  SIM_STATUS_SIM_INVALID = 0,                     /**< SIM is invalid.            */
+  SIM_STATUS_SIM_VALID   = 1,                     /**< SIM is valid.              */
+  SIM_STATUS_UNKNOWN     = 0xFF,                  /**< SIM status is unknown.     */
+} eclib_sim_status_t;
+
+/**
+ * Output value of the connection status.
+ */
+typedef enum{
+  CONN_STATUS_IDLE         = 0,                   /**< The stack is in IDLE state.          */
+  CONN_STATUS_CONNECTED    = 1,                   /**< The stack is in CONNECTED state.     */
+  CONN_STATUS_UNKNOWN      = 0xFF,                /**< The stack is in unknown state.       */
+} eclib_connection_status_t;
+
+/**
+ * Output value of the registration status.
+ */
+typedef enum{
+  NOT_REGISTERED           = 0,                   /**< The module is not registered to the network.*/
+  REGISTERED               = 1,                   /**< The module is registered to the network.    */
+} eclib_registration_status_t;
+
+/**
  * Static Data for ECLIB
  */
 struct eclib_register {

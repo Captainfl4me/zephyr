@@ -27,6 +27,9 @@ struct eclib_data {
 	uint8_t last_response_error;
 
 	uint8_t cold_init_version;
+	eclib_sim_status_t sim_status;
+	eclib_connection_status_t connection_status;
+	eclib_registration_status_t registration_status;
 };
 
 /**
@@ -68,6 +71,9 @@ static void ring_ping_cb(const struct device *dev, struct gpio_callback *cb, uin
 
 static void on_cmd_atok(struct net_buf **buf, uint16_t len);
 static void on_cmd_aterror(struct net_buf **buf, uint16_t len);
+static void on_cmd_sim_status(struct net_buf **buf, uint16_t len);
+static void on_cmd_connection_status(struct net_buf **buf, uint16_t len);
+static void on_cmd_registration_status(struct net_buf **buf, uint16_t len);
 static void on_cmd_nvmread(struct net_buf **buf, uint16_t len);
 #ifdef CONFIG_MODEM_ST87M01_RX_AT_FULL_LOG
 static void on_cmd_fullmatch(struct net_buf **buf, uint16_t len);
@@ -92,6 +98,10 @@ eclib_result_t eclib_init(struct eclib_register *eclib_register)
 
 	/* Init response semaphore */
 	k_sem_init(&eclib_data.response_sem, 0, 1);
+
+	eclib_data.sim_status = SIM_STATUS_UNKNOWN;
+	eclib_data.connection_status = CONN_STATUS_UNKNOWN;
+	eclib_data.registration_status = NOT_REGISTERED;
 
 	/* Start RX thread */
 	k_thread_create(&eclib_rx_thread, eclib_rx_stack, K_KERNEL_STACK_SIZEOF(eclib_rx_stack),
@@ -314,7 +324,11 @@ static void eclib_rx()
 		/* GENERIC RESPONSES */
 		CMD_HANDLER("OK", atok),
 		CMD_HANDLER("ERROR", aterror),
-		CMD_HANDLER("+CME ERROR: ", aterror),
+		CMD_HANDLER("+CME ERROR", aterror),
+		/* LOCAL STATUS */
+		CMD_HANDLER("#SIMST", sim_status),
+		CMD_HANDLER("+CSCON", connection_status),
+		CMD_HANDLER("+CEREG", registration_status),
 		/* CONFIG RESPONSES */
 		CMD_HANDLER("#NVMRD: ", nvmread),
 
@@ -412,11 +426,65 @@ static void on_cmd_aterror(struct net_buf **buf, uint16_t len)
 	size_t out_len;
 	char error[len + 1];
 
-	out_len = net_buf_linearize(error, len + 1, *buf, 0, len);
+	out_len = net_buf_linearize(error, len + 1, *buf, 2, len);
 	error[out_len] = '\0';
 	LOG_ERR("AT ERROR (%d) CODE: [%s]", len, error);
 	eclib_data.last_response_error = 1;
 	k_sem_give(&eclib_data.response_sem);
+}
+
+static void on_cmd_sim_status(struct net_buf **buf, uint16_t len)
+{
+	size_t out_len;
+	char simst[len];
+
+	out_len = net_buf_linearize(simst, len, *buf, 2, len);
+
+	if (simst[0] == '1') {
+		eclib_data.sim_status = SIM_STATUS_SIM_VALID;
+	} else if (simst[0] == '0') {
+		eclib_data.sim_status = SIM_STATUS_SIM_INVALID;
+	} else {
+		eclib_data.sim_status = SIM_STATUS_UNKNOWN;
+	}
+
+	LOG_INF("SIMST: %c", simst[0]);
+}
+
+static void on_cmd_connection_status(struct net_buf **buf, uint16_t len)
+{
+	size_t out_len;
+	char cscon[len];
+
+	out_len = net_buf_linearize(cscon, len, *buf, 2, len);
+
+	if (cscon[0] == '1') {
+		eclib_data.connection_status = CONN_STATUS_CONNECTED;
+	} else if (cscon[0] == '0') {
+		eclib_data.connection_status = CONN_STATUS_IDLE;
+	} else {
+		eclib_data.connection_status = CONN_STATUS_UNKNOWN;
+	}
+
+	LOG_INF("CSCON: %c", cscon[0]);
+}
+
+static void on_cmd_registration_status(struct net_buf **buf, uint16_t len)
+{
+	size_t out_len;
+	char cereg[len];
+
+	out_len = net_buf_linearize(cereg, len, *buf, 2, len);
+
+	/* 1 = registered, home network */
+	/* 5 = registered, roaming      */
+	if (cereg[0] == '1' || cereg[0] == '5') {
+		eclib_data.registration_status = REGISTERED;
+	} else {
+		eclib_data.connection_status = NOT_REGISTERED;
+	}
+
+	LOG_INF("CEREG: %c", cereg[0]);
 }
 
 static void on_cmd_nvmread(struct net_buf **buf, uint16_t len)
