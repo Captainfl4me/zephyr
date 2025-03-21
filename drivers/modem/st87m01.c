@@ -2,25 +2,14 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+#define DT_DRV_COMPAT st_87m01
 
-#include "./ST87_ECLIB/Core/inc/st87ec_lib.h"
+#include "st87m01.h"
+#include "./ST87_ECLIB/eclib.h"
 #include <zephyr/logging/log.h>
 #include <zephyr/net/net_if.h>
-#include "st87m01.h"
 
 LOG_MODULE_REGISTER(modem_st87m01, CONFIG_MODEM_LOG_LEVEL);
-
-static void modem_reset(void);
-static void offload_iface_init(struct net_if *iface);
-
-static struct offloaded_if_api api_funcs = {
-	.iface_api.init = offload_iface_init,
-};
-
-void eclib_error_cb(ST87EC_Lib_SequenceValue_t FaillingSequence, ST87EC_Lib_ErrorCode_t Error)
-{
-    LOG_ERR("ECLIB ERR: SEQ = %d, ERROR = %d", FaillingSequence, Error);
-}
 
 /*
  * Initializes modem handlers and context.
@@ -32,8 +21,6 @@ static int modem_init(const struct device *dev)
 	int ret = 0;
 	ARG_UNUSED(dev);
 	LOG_DBG("ST87M01 Init");
-	ST87EC_Lib_Status_t pstate;
-	ST87EC_Lib_Result_t res = ST87EC_Lib_Init(eclib_error_cb);
 
 	mctx.data_manufacturer = mdata.mdm_manufacturer;
 	mctx.data_model = mdata.mdm_model;
@@ -50,7 +37,12 @@ static int modem_init(const struct device *dev)
 		goto error;
 	}
 
-	modem_reset();
+	/*modem_reset();*/
+	struct eclib_register reg;
+	reg.mctx = &mctx;
+	reg.reset_gpio = &reset_gpio;
+	reg.ring_gpio = &ring_gpio;
+	eclib_result_t res = eclib_init(&reg);
 
 error:
 	return ret;
