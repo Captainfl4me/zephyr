@@ -69,6 +69,9 @@ static void ring_ping_cb(const struct device *dev, struct gpio_callback *cb, uin
 static void on_cmd_atok(struct net_buf **buf, uint16_t len);
 static void on_cmd_aterror(struct net_buf **buf, uint16_t len);
 static void on_cmd_nvmread(struct net_buf **buf, uint16_t len);
+#ifdef CONFIG_MODEM_ST87M01_RX_AT_FULL_LOG
+static void on_cmd_fullmatch(struct net_buf **buf, uint16_t len);
+#endif
 
 static uint8_t is_crlf(uint8_t c);
 static void net_buf_skipcrlf(struct net_buf **buf);
@@ -309,10 +312,15 @@ static void eclib_rx()
 
 	static const struct cmd_handler handlers[] = {
 		/* GENERIC RESPONSES */
-		CMD_HANDLER("OK", atok), CMD_HANDLER("ERROR", aterror),
+		CMD_HANDLER("OK", atok),
+		CMD_HANDLER("ERROR", aterror),
 		CMD_HANDLER("+CME ERROR: ", aterror),
 		/* CONFIG RESPONSES */
-		CMD_HANDLER("#NVMRD: ", nvmread)
+		CMD_HANDLER("#NVMRD: ", nvmread),
+
+#ifdef CONFIG_MODEM_ST87M01_RX_AT_FULL_LOG
+		CMD_HANDLER("", fullmatch),
+#endif
 	};
 
 	while (true) {
@@ -423,6 +431,18 @@ static void on_cmd_nvmread(struct net_buf **buf, uint16_t len)
 	sscanf((const char *)nvmrd, "%x", (int *)&tmp);
 	eclib_data.cold_init_version = (uint8_t)tmp;
 }
+
+#ifdef CONFIG_MODEM_ST87M01_RX_AT_FULL_LOG
+static void on_cmd_fullmatch(struct net_buf **buf, uint16_t len)
+{
+	size_t out_len;
+	char str[len + 1];
+
+	out_len = net_buf_linearize(str, len + 1, *buf, 0, len);
+	str[out_len] = '\0';
+	LOG_ERR("RAW: [%s]", str);
+}
+#endif
 
 /* NET_BUF HELPERS --------------------------------------------------------*/
 static uint8_t is_crlf(uint8_t c)

@@ -24,30 +24,8 @@
 #define MDM_UART_NODE DT_INST_BUS(0)
 #define MDM_UART_DEV  DEVICE_DT_GET(MDM_UART_NODE)
 
-/*
- * Default length of modem data.
- */
-#define MDM_MANUFACTURER_LENGTH 12
-#define MDM_MODEL_LENGTH        16
-#define MDM_REVISION_LENGTH     64
-#define MDM_IMEI_LENGTH         16
-#define MDM_IMSI_LENGTH         16
-#define MDM_ICCID_LENGTH        32
-
 /* Types ---------------------------------------------------------------------*/
 
-/* driver data */
-struct modem_data {
-	/* modem data */
-	char mdm_manufacturer[MDM_MANUFACTURER_LENGTH];
-	char mdm_model[MDM_MODEL_LENGTH];
-	char mdm_revision[MDM_REVISION_LENGTH];
-	char mdm_imei[MDM_IMEI_LENGTH];
-	char mdm_imsi[MDM_IMSI_LENGTH];
-	int mdm_rssi;
-};
-
-static struct modem_data mdata;
 static struct mdm_receiver_context mctx;
 
 static const struct gpio_dt_spec reset_gpio = GPIO_DT_SPEC_INST_GET(0, mdm_reset_gpios);
