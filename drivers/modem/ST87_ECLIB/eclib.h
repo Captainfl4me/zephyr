@@ -14,8 +14,6 @@
 
 /* Exported constants and macros-----------------------------------------------*/
 
-#define MDM_MAX_DATA_LENGTH 1024
-#define MDM_MAX_TX_DATA_LENGTH 1024
 #define MDM_AT_CMD_TIMEOUT 5000
 #define MDM_RECV_MAX_BUF    30
 #define MDM_RECV_BUF_SIZE   128
@@ -38,6 +36,9 @@
 
 /* Modem data */
 struct modem_data {
+	struct net_if *iface;
+	uint8_t mac_addr[6];
+
 	/* modem data */
 	char mdm_manufacturer[MDM_MANUFACTURER_LENGTH];
 	char mdm_model[MDM_MODEL_LENGTH];
@@ -95,8 +96,8 @@ struct eclib_register {
 	struct gpio_dt_spec *ring_gpio;
 };
 
-static uint8_t mdm_recv_buf[MDM_MAX_DATA_LENGTH];
-static uint8_t mdm_tx_buf[MDM_MAX_TX_DATA_LENGTH];
+static uint8_t mdm_recv_buf[CONFIG_MODEM_ST87M01_MAX_RX_DATA_LENGTH];
+static uint8_t mdm_tx_buf[CONFIG_MODEM_ST87M01_MAX_TX_DATA_LENGTH];
 
 /* Exported functions --------------------------------------------------------*/
 

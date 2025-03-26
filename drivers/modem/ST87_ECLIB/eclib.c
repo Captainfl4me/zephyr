@@ -88,6 +88,7 @@ static int net_buf_ncmp(struct net_buf *buf, const uint8_t *s2, size_t n);
 
 eclib_result_t eclib_init(struct eclib_register *eclib_register)
 {
+	LOG_DBG("ECLIB Init");
 	uint8_t status = 0;
 	eclib_result_t result = RESULT_OK;
 
@@ -175,7 +176,7 @@ eclib_result_t eclib_cold_param_init(void)
 	uint32_t tmp;
 
 	// COLDINIT_STATE_INIT
-	if (eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, ST87EC_NVMRD_CMD) < 0) {
+	if (eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, ST87EC_NVMRD_CMD) == 0) {
 		LOG_ERR("ST87EC_NVMRD_CMD timeout!");
 		return RESULT_KO;
 	}
@@ -194,7 +195,7 @@ eclib_result_t eclib_cold_param_init(void)
 		eclib_data.cold_init_version);
 
 	for (size_t k = 0; k < ST87EC_COLD_INIT_CMD_SIZE; k++) {
-		if (eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, ST87EC_COLD_INIT_COMMANDS[k]) < 0) {
+		if (eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, ST87EC_COLD_INIT_COMMANDS[k]) == 0) {
 			LOG_ERR("ST87EC_NVMRD_CMD timeout!");
 			return RESULT_KO;
 		}
@@ -316,6 +317,7 @@ static void eclib_read_rx(struct net_buf **rx_buf)
 
 static void eclib_rx()
 {
+	LOG_DBG("Start RX thread");
 	struct net_buf *rx_buf = NULL;
 	struct net_buf *frag = NULL;
 	uint16_t offset, len;

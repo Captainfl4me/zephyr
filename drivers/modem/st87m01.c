@@ -7,7 +7,7 @@
 #include "st87m01.h"
 #include "./ST87_ECLIB/eclib.h"
 #include <zephyr/logging/log.h>
-#include <zephyr/net/net_if.h>
+#include <zephyr/random/random.h>
 
 LOG_MODULE_REGISTER(modem_st87m01, CONFIG_MODEM_LOG_LEVEL);
 
@@ -48,16 +48,65 @@ error:
 	return ret;
 }
 
-static void modem_reset(void)
+static int offload_get(sa_family_t family, enum net_sock_type type, enum net_ip_protocol ip_proto,
+		       struct net_context **context)
 {
+}
+static int offload_bind(sa_family_t family, enum net_sock_type type, enum net_ip_protocol ip_proto,
+			struct net_context **context)
+{
+}
+static int offload_listen(sa_family_t family, enum net_sock_type type,
+			  enum net_ip_protocol ip_proto, struct net_context **context)
+{
+}
+static int offload_connect(sa_family_t family, enum net_sock_type type,
+			   enum net_ip_protocol ip_proto, struct net_context **context)
+{
+}
+static int offload_accept(sa_family_t family, enum net_sock_type type,
+			  enum net_ip_protocol ip_proto, struct net_context **context)
+{
+}
+static int offload_send(sa_family_t family, enum net_sock_type type, enum net_ip_protocol ip_proto,
+			struct net_context **context)
+{
+}
+static int offload_sendto(sa_family_t family, enum net_sock_type type,
+			  enum net_ip_protocol ip_proto, struct net_context **context)
+{
+}
+static int offload_recv(sa_family_t family, enum net_sock_type type, enum net_ip_protocol ip_proto,
+			struct net_context **context)
+{
+}
+static int offload_put(sa_family_t family, enum net_sock_type type, enum net_ip_protocol ip_proto,
+		       struct net_context **context)
+{
+}
+
+static inline uint8_t *st87m01_get_mac()
+{
+	mdata.mac_addr[0] = 0x00;
+	mdata.mac_addr[1] = 0x10;
+
+	sys_rand_get(&mdata.mac_addr[2], 4U);
+
+	return mdata.mac_addr;
 }
 
 /* Setup the Modem NET Interface. */
 static void offload_iface_init(struct net_if *iface)
 {
+	LOG_INF("OFFLOAD IFACE INIT");
+
+	iface->if_dev->offload = &offload_funcs;
+	net_if_set_link_addr(iface, st87m01_get_mac(), sizeof(mdata.mac_addr), NET_LINK_ETHERNET);
+
+	mdata.iface = iface;
 }
 
 /* Register device with the networking stack. */
 NET_DEVICE_DT_INST_OFFLOAD_DEFINE(0, modem_init, NULL, &mdata, NULL,
 				  CONFIG_MODEM_ST87M01_INIT_PRIORITY, &api_funcs,
-				  MDM_MAX_DATA_LENGTH);
+				  CONFIG_MODEM_ST87M01_MAX_RX_DATA_LENGTH);
