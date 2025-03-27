@@ -37,22 +37,21 @@ static void offload_iface_init(struct net_if *iface);
 
 static int offload_get(sa_family_t family, enum net_sock_type type, enum net_ip_protocol ip_proto,
 		       struct net_context **context);
-static int offload_bind(sa_family_t family, enum net_sock_type type, enum net_ip_protocol ip_proto,
-			struct net_context **context);
-static int offload_listen(sa_family_t family, enum net_sock_type type,
-			  enum net_ip_protocol ip_proto, struct net_context **context);
-static int offload_connect(sa_family_t family, enum net_sock_type type,
-			   enum net_ip_protocol ip_proto, struct net_context **context);
-static int offload_accept(sa_family_t family, enum net_sock_type type,
-			  enum net_ip_protocol ip_proto, struct net_context **context);
-static int offload_send(sa_family_t family, enum net_sock_type type, enum net_ip_protocol ip_proto,
-			struct net_context **context);
-static int offload_sendto(sa_family_t family, enum net_sock_type type,
-			  enum net_ip_protocol ip_proto, struct net_context **context);
-static int offload_recv(sa_family_t family, enum net_sock_type type, enum net_ip_protocol ip_proto,
-			struct net_context **context);
-static int offload_put(sa_family_t family, enum net_sock_type type, enum net_ip_protocol ip_proto,
-		       struct net_context **context);
+static int offload_bind(struct net_context *context, const struct sockaddr *addr,
+			socklen_t addrlen);
+static int offload_listen(struct net_context *context, int backlog);
+static int offload_connect(struct net_context *context, const struct sockaddr *addr,
+			   socklen_t addrlen, net_context_connect_cb_t cb, int32_t timeout,
+			   void *user_data);
+static int offload_accept(struct net_context *context, net_tcp_accept_cb_t cb, int32_t timeout,
+			  void *user_data);
+static int offload_send(struct net_pkt *pkt, net_context_send_cb_t cb, int32_t timeout,
+			void *user_data);
+static int offload_sendto(struct net_pkt *pkt, const struct sockaddr *dst_addr, socklen_t addrlen,
+			  net_context_send_cb_t cb, int32_t timeout, void *user_data);
+static int offload_recv(struct net_context *context, net_context_recv_cb_t cb, int32_t timeout,
+			void *user_data);
+static int offload_put(struct net_context *context);
 
 static struct net_offload offload_funcs = {
 	.get = offload_get,

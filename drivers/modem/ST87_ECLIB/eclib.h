@@ -10,17 +10,25 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/net/net_ip.h>
+#include <zephyr/net/net_context.h>
+#include <zephyr/net/net_pkt.h>
 #include "../modem_receiver.h"
 
 /* Exported constants and macros-----------------------------------------------*/
 
 #define MDM_AT_CMD_TIMEOUT 5000
-#define MDM_RECV_MAX_BUF    30
-#define MDM_RECV_BUF_SIZE   128
+#define MDM_RECV_MAX_BUF   30
+#define MDM_RECV_BUF_SIZE  128
+
+#define SOCKET_SEND_TIMEOUT       10
+#define SOCKET_RECEIVE_TIMEOUT    10
+#define SOCKET_FRAME_RECEIVED_URC 1
 
 #define BUF_ALLOC_TIMEOUT K_SECONDS(1)
 
-/*#define MDM_MAX_SOCKETS 6*/
+#define CHAR_OFFSET     48
+#define MDM_MAX_SOCKETS 3
 
 /*
  * Default length of modem data.
@@ -64,28 +72,58 @@ typedef enum {
 /**
  * Output value of the SIM status.
  */
-typedef enum{
-  SIM_STATUS_SIM_INVALID = 0,                     /**< SIM is invalid.            */
-  SIM_STATUS_SIM_VALID   = 1,                     /**< SIM is valid.              */
-  SIM_STATUS_UNKNOWN     = 0xFF,                  /**< SIM status is unknown.     */
+typedef enum {
+	SIM_STATUS_SIM_INVALID = 0, /**< SIM is invalid.            */
+	SIM_STATUS_SIM_VALID = 1,   /**< SIM is valid.              */
+	SIM_STATUS_UNKNOWN = 0xFF,  /**< SIM status is unknown.     */
 } eclib_sim_status_t;
 
 /**
  * Output value of the connection status.
  */
-typedef enum{
-  CONN_STATUS_IDLE         = 0,                   /**< The stack is in IDLE state.          */
-  CONN_STATUS_CONNECTED    = 1,                   /**< The stack is in CONNECTED state.     */
-  CONN_STATUS_UNKNOWN      = 0xFF,                /**< The stack is in unknown state.       */
+typedef enum {
+	CONN_STATUS_IDLE = 0,       /**< The stack is in IDLE state.          */
+	CONN_STATUS_CONNECTED = 1,  /**< The stack is in CONNECTED state.     */
+	CONN_STATUS_UNKNOWN = 0xFF, /**< The stack is in unknown state.       */
 } eclib_connection_status_t;
 
 /**
  * Output value of the registration status.
  */
-typedef enum{
-  NOT_REGISTERED           = 0,                   /**< The module is not registered to the network.*/
-  REGISTERED               = 1,                   /**< The module is registered to the network.    */
+typedef enum {
+	NOT_REGISTERED = 0, /**< The module is not registered to the network.*/
+	REGISTERED = 1,     /**< The module is registered to the network.    */
 } eclib_registration_status_t;
+
+/**
+ * Values of IpMode.
+ */
+typedef enum {
+	IPV4_MODE = 0, /**< The module is in IPV4 mode.*/
+	IPV6_MODE = 1, /**< The module is in IPV6 mode.*/
+} eclib_ip_mode_t;
+
+/**
+ * Values of SocketType.
+ */
+typedef enum {
+	UDP = 0, /**< UDP socket type.*/
+	TCP = 1, /**< TCP socket type.*/
+	RAW = 2, /**< RAW socket type.*/
+} eclib_socket_type_t;
+
+typedef struct {
+	int id;
+	eclib_socket_type_t type;
+	eclib_ip_mode_t ip_mode;
+	struct net_context *context;
+	sa_family_t family;
+	enum net_ip_protocol ip_proto;
+
+	/** socket callbacks */
+	net_context_recv_cb_t recv_cb;
+	void *recv_user_data;
+} eclib_socket_t;
 
 /**
  * Static Data for ECLIB
@@ -97,13 +135,20 @@ struct eclib_register {
 };
 
 static uint8_t mdm_recv_buf[CONFIG_MODEM_ST87M01_MAX_RX_DATA_LENGTH];
-static uint8_t mdm_tx_buf[CONFIG_MODEM_ST87M01_MAX_TX_DATA_LENGTH];
 
 /* Exported functions --------------------------------------------------------*/
 
 eclib_result_t eclib_init(struct eclib_register *eclib_register);
 eclib_result_t eclib_reset();
+eclib_result_t eclib_wait_for_cereg_cscon();
 unsigned int eclib_send_sync_at(unsigned int timeout, const char *format, ...);
+unsigned int eclib_send_sync_with_bin_at(unsigned int timeout, const char *format, ...);
 eclib_result_t eclib_cold_param_init(void);
+eclib_result_t eclib_get_socket(struct net_context **context, enum net_ip_protocol ip_proto, sa_family_t family);
+eclib_result_t eclib_create_socket(eclib_socket_t *socket);
+eclib_result_t eclib_recv_socket(eclib_socket_t *socket, net_context_recv_cb_t cb, void *user_data);
+int eclib_send_to_socket(eclib_socket_t *socket, const struct sockaddr *dst_addr,
+			 struct net_pkt *pkt);
+eclib_result_t eclib_read_socket(eclib_socket_t *socket);
 
 #endif // #ECLIB_H

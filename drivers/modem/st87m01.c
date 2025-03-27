@@ -8,6 +8,7 @@
 #include "./ST87_ECLIB/eclib.h"
 #include <zephyr/logging/log.h>
 #include <zephyr/random/random.h>
+#include <zephyr/net/net_pkt.h>
 
 LOG_MODULE_REGISTER(modem_st87m01, CONFIG_MODEM_LOG_LEVEL);
 
@@ -51,38 +52,74 @@ error:
 static int offload_get(sa_family_t family, enum net_sock_type type, enum net_ip_protocol ip_proto,
 		       struct net_context **context)
 {
+	LOG_DBG("OFFLOAD GET");
+	eclib_get_socket(context, ip_proto, family);
+
+	return 0;
 }
-static int offload_bind(sa_family_t family, enum net_sock_type type, enum net_ip_protocol ip_proto,
-			struct net_context **context)
+
+static int offload_bind(struct net_context *context, const struct sockaddr *addr, socklen_t addrlen)
 {
+	LOG_DBG("OFFLOAD BIND");
 }
-static int offload_listen(sa_family_t family, enum net_sock_type type,
-			  enum net_ip_protocol ip_proto, struct net_context **context)
+
+static int offload_listen(struct net_context *context, int backlog)
 {
+	LOG_DBG("OFFLOAD LISTEN");
 }
-static int offload_connect(sa_family_t family, enum net_sock_type type,
-			   enum net_ip_protocol ip_proto, struct net_context **context)
+
+static int offload_connect(struct net_context *context, const struct sockaddr *addr,
+			   socklen_t addrlen, net_context_connect_cb_t cb, int32_t timeout,
+			   void *user_data)
 {
+	LOG_DBG("OFFLOAD CONNECT");
 }
-static int offload_accept(sa_family_t family, enum net_sock_type type,
-			  enum net_ip_protocol ip_proto, struct net_context **context)
+
+static int offload_accept(struct net_context *context, net_tcp_accept_cb_t cb, int32_t timeout,
+			  void *user_data)
 {
+	LOG_DBG("OFFLOAD ACCEPT");
 }
-static int offload_send(sa_family_t family, enum net_sock_type type, enum net_ip_protocol ip_proto,
-			struct net_context **context)
+
+static int offload_send(struct net_pkt *pkt, net_context_send_cb_t cb, int32_t timeout,
+			void *user_data)
 {
+	LOG_DBG("OFFLOAD SEND");
 }
-static int offload_sendto(sa_family_t family, enum net_sock_type type,
-			  enum net_ip_protocol ip_proto, struct net_context **context)
+
+static int offload_sendto(struct net_pkt *pkt, const struct sockaddr *dst_addr, socklen_t addrlen,
+			  net_context_send_cb_t cb, int32_t timeout, void *user_data)
 {
+	LOG_DBG("OFFLOAD SENDTO");
+	struct net_context *context = net_pkt_context(pkt);
+
+	if (eclib_create_socket(context->offload_context) != RESULT_OK) {
+		LOG_ERR("Socket creation failed");
+		return -EOPNOTSUPP;
+	}
+
+	int ret = eclib_send_to_socket(context->offload_context, dst_addr, pkt);
+
+	if (cb) {
+		cb(context, ret, user_data);
+	}
+
+	return ret;
 }
-static int offload_recv(sa_family_t family, enum net_sock_type type, enum net_ip_protocol ip_proto,
-			struct net_context **context)
+
+static int offload_recv(struct net_context *context, net_context_recv_cb_t cb, int32_t timeout,
+			void *user_data)
 {
+	LOG_DBG("OFFLOAD RECV");
+
+	eclib_recv_socket(context->offload_context, cb, user_data);
+
+	return 0;
 }
-static int offload_put(sa_family_t family, enum net_sock_type type, enum net_ip_protocol ip_proto,
-		       struct net_context **context)
+
+static int offload_put(struct net_context *context)
 {
+	LOG_DBG("OFFLOAD PUT");
 }
 
 static inline uint8_t *st87m01_get_mac()

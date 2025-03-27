@@ -30,6 +30,11 @@ struct eclib_data {
 	eclib_sim_status_t sim_status;
 	eclib_connection_status_t connection_status;
 	eclib_registration_status_t registration_status;
+	uint8_t context_id;
+	eclib_ip_mode_t ip_mode;
+	uint8_t last_socket_id;
+
+	eclib_socket_t sockets[MDM_MAX_SOCKETS];
 };
 
 /**
@@ -74,7 +79,11 @@ static void on_cmd_aterror(struct net_buf **buf, uint16_t len);
 static void on_cmd_sim_status(struct net_buf **buf, uint16_t len);
 static void on_cmd_connection_status(struct net_buf **buf, uint16_t len);
 static void on_cmd_registration_status(struct net_buf **buf, uint16_t len);
+static void on_cmd_ip_config_status(struct net_buf **buf, uint16_t len);
 static void on_cmd_nvmread(struct net_buf **buf, uint16_t len);
+static void on_cmd_socket_create(struct net_buf **buf, uint16_t len);
+static void on_cmd_socket_iprecv(struct net_buf **buf, uint16_t len);
+static void on_cmd_socket_ipread(struct net_buf **buf, uint16_t len);
 #ifdef CONFIG_MODEM_ST87M01_RX_AT_FULL_LOG
 static void on_cmd_fullmatch(struct net_buf **buf, uint16_t len);
 #endif
@@ -83,6 +92,7 @@ static uint8_t is_crlf(uint8_t c);
 static void net_buf_skipcrlf(struct net_buf **buf);
 static uint16_t net_buf_findcrlf(struct net_buf *buf, struct net_buf **frag, uint16_t *offset);
 static int net_buf_ncmp(struct net_buf *buf, const uint8_t *s2, size_t n);
+char *net_sprint_ip_addr(const struct sockaddr *addr);
 
 /* Exported functions --------------------------------------------------------*/
 
@@ -103,6 +113,15 @@ eclib_result_t eclib_init(struct eclib_register *eclib_register)
 	eclib_data.sim_status = SIM_STATUS_UNKNOWN;
 	eclib_data.connection_status = CONN_STATUS_UNKNOWN;
 	eclib_data.registration_status = NOT_REGISTERED;
+
+	eclib_data.context_id = 0;
+	eclib_data.ip_mode = 0;
+	eclib_data.last_socket_id = -1;
+
+	for (uint8_t i = 0; i < MDM_MAX_SOCKETS; i++) {
+		eclib_data.sockets[i].context = NULL;
+		eclib_data.sockets[i].id = -1;
+	}
 
 	/* Start RX thread */
 	k_thread_create(&eclib_rx_thread, eclib_rx_stack, K_KERNEL_STACK_SIZEOF(eclib_rx_stack),
@@ -141,9 +160,20 @@ eclib_result_t eclib_reset()
 	return (result);
 }
 
+eclib_result_t eclib_wait_for_cereg_cscon()
+{
+	while (eclib_data.registration_status != REGISTERED ||
+	       eclib_data.connection_status != CONN_STATUS_CONNECTED) {
+		k_msleep(5);
+	}
+
+	return RESULT_OK;
+}
+
 unsigned int eclib_send_sync_at(unsigned int timeout, const char *format, ...)
 {
 	int ret;
+	uint8_t mdm_tx_buf[CONFIG_MODEM_ST87M01_MAX_TX_DATA_LENGTH];
 
 	/* Parsing command */
 	va_list args;
@@ -157,7 +187,7 @@ unsigned int eclib_send_sync_at(unsigned int timeout, const char *format, ...)
 	mdm_receiver_send(eclib_data.mctx, "\r\n", 2);
 
 	if (timeout == 0) {
-		return 0;
+		return length_sent + 2;
 	}
 
 	k_sem_reset(&eclib_data.response_sem);
@@ -208,6 +238,165 @@ eclib_result_t eclib_cold_param_init(void)
 	}
 
 	return (result);
+}
+
+eclib_result_t eclib_get_socket(struct net_context **context, enum net_ip_protocol ip_proto,
+				sa_family_t family)
+{
+	if (eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, "AT#SOCKETCREATE?") == 0) {
+		LOG_ERR("SOCKETCREATE reading timeout!");
+		return RESULT_KO;
+	}
+
+	eclib_socket_t *sock = NULL;
+	for (uint8_t i = 0; i < MDM_MAX_SOCKETS; i++) {
+		if (eclib_data.sockets[i].context == NULL) {
+			sock = &eclib_data.sockets[i];
+			break;
+		}
+	}
+
+	if (!sock) {
+		return -ENOMEM;
+	}
+
+	(*context)->offload_context = sock;
+	sock->id = -1;
+	sock->ip_proto = ip_proto;
+	sock->family = family;
+	switch (ip_proto) {
+	case IPPROTO_TCP:
+		sock->type = TCP;
+		break;
+	case IPPROTO_UDP:
+		sock->type = UDP;
+		break;
+	case IPPROTO_RAW:
+		sock->type = RAW;
+		break;
+	default:
+		LOG_ERR("PROTOCOL NOT SUPPORTED!");
+		return -ENOSYS;
+	}
+	sock->context = *context;
+}
+
+eclib_result_t eclib_create_socket(eclib_socket_t *socket)
+{
+	eclib_wait_for_cereg_cscon();
+
+	/* No socket created yet, create a new one */
+	if (socket->id < 0) {
+		switch (socket->type) {
+		case UDP:
+			if (eclib_send_sync_at(MDM_AT_CMD_TIMEOUT,
+					       "AT#SOCKETCREATE=%d,%d,%s,%d,%d,%d,%d",
+					       eclib_data.context_id, eclib_data.ip_mode, "UDP",
+					       SOCKET_SEND_TIMEOUT, SOCKET_RECEIVE_TIMEOUT,
+					       SOCKET_FRAME_RECEIVED_URC) == 0) {
+				LOG_ERR("SOCKETCREATE create timeout!");
+				return RESULT_KO;
+			}
+			break;
+		case TCP:
+			if (eclib_send_sync_at(MDM_AT_CMD_TIMEOUT,
+					       "AT#SOCKETCREATE=%d,%d,%s,%d,%d,%d",
+					       eclib_data.context_id, eclib_data.ip_mode, "TCP",
+					       SOCKET_SEND_TIMEOUT, SOCKET_RECEIVE_TIMEOUT,
+					       SOCKET_FRAME_RECEIVED_URC) == 0) {
+				LOG_ERR("SOCKETCREATE create timeout!");
+				return RESULT_KO;
+			}
+			break;
+		case RAW:
+			if (eclib_send_sync_at(MDM_AT_CMD_TIMEOUT,
+					       "AT#SOCKETCREATE=%d,%d,%s,%d,%d,%d",
+					       eclib_data.context_id, eclib_data.ip_mode, "RAW",
+					       SOCKET_SEND_TIMEOUT, SOCKET_RECEIVE_TIMEOUT,
+					       SOCKET_FRAME_RECEIVED_URC) == 0) {
+				LOG_ERR("SOCKETCREATE create timeout!");
+				return RESULT_KO;
+			}
+
+			break;
+		}
+	}
+
+	// Socket creation successful
+	socket->id = eclib_data.last_socket_id;
+
+	return RESULT_OK;
+}
+
+eclib_result_t eclib_recv_socket(eclib_socket_t *socket, net_context_recv_cb_t cb, void *user_data)
+{
+	socket->recv_cb = cb;
+	socket->recv_user_data = user_data;
+
+	return RESULT_OK;
+}
+
+int eclib_send_to_socket(eclib_socket_t *socket, const struct sockaddr *dst_addr,
+			 struct net_pkt *pkt)
+{
+	eclib_wait_for_cereg_cscon();
+
+	if (socket->id < 0) {
+		LOG_ERR("Socket does not have allocated ID");
+		return -EINVAL;
+	}
+
+	int ret, dst_port = -1;
+#if defined(CONFIG_NET_IPV6)
+	if (dst_addr->sa_family == AF_INET6) {
+		dst_port = ntohs(net_sin6(dst_addr)->sin6_port);
+	} else
+#endif
+#if defined(CONFIG_NET_IPV4)
+		if (dst_addr->sa_family == AF_INET) {
+		dst_port = ntohs(net_sin(dst_addr)->sin_port);
+	} else
+#endif
+	{
+		LOG_ERR("Addr sa_family not supported: %d", dst_addr->sa_family);
+		return -EINVAL;
+	}
+
+	size_t data_len = net_buf_frags_len(pkt->frags);
+	/* No socket created yet, create a new one */
+	switch (socket->type) {
+	case UDP:
+		eclib_send_sync_at(0, "AT#IPSENDUDP=%d,%d,%s,%d,%d,%d,%d", eclib_data.context_id,
+				   socket->id, net_sprint_ip_addr(dst_addr), dst_port, 0, 1,
+				   data_len);
+		break;
+	case TCP:
+		break;
+	case RAW:
+		break;
+	}
+
+	/* Loop through packet data and send */
+	struct net_buf *frag = pkt->frags;
+	while (frag) {
+		mdm_receiver_send(eclib_data.mctx, frag->data, frag->len);
+		frag = frag->frags;
+	}
+
+	k_sem_reset(&eclib_data.response_sem);
+	ret = k_sem_take(&eclib_data.response_sem, K_MSEC(MDM_AT_CMD_TIMEOUT));
+
+	if (ret == -EAGAIN) {
+		return -EAGAIN;
+	}
+
+	return data_len;
+}
+
+eclib_result_t eclib_read_socket(eclib_socket_t *socket)
+{
+	eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, "AT#IPREAD=%d,%d", eclib_data.context_id,
+			   socket->id);
 }
 
 /* Private functions --------------------------------------------------------*/
@@ -286,7 +475,7 @@ static void eclib_read_rx(struct net_buf **rx_buf)
 {
 	int ret;
 	size_t bytes_read = 0, rx_len;
-	uint8_t uart_rx_buf[MDM_RECV_BUF_SIZE];
+	uint8_t uart_rx_buf[CONFIG_MODEM_ST87M01_MAX_RX_DATA_LENGTH];
 
 	while (true) {
 		ret = mdm_receiver_recv(eclib_data.mctx, uart_rx_buf, sizeof(uart_rx_buf),
@@ -331,8 +520,13 @@ static void eclib_rx()
 		CMD_HANDLER("#SIMST", sim_status),
 		CMD_HANDLER("+CSCON", connection_status),
 		CMD_HANDLER("+CEREG", registration_status),
+		CMD_HANDLER("#IPCFG", ip_config_status),
 		/* CONFIG RESPONSES */
-		CMD_HANDLER("#NVMRD: ", nvmread),
+		CMD_HANDLER("#NVMRD", nvmread),
+		/* SOCKET RESPONSES */
+		CMD_HANDLER("#SOCKETCREATE", socket_create),
+		CMD_HANDLER("#IPRECV", socket_iprecv),
+		CMD_HANDLER("#IPREAD", socket_ipread),
 
 #ifdef CONFIG_MODEM_ST87M01_RX_AT_FULL_LOG
 		CMD_HANDLER("", fullmatch),
@@ -415,6 +609,7 @@ static void eclib_rx()
 
 static void ring_ping_cb(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
+	LOG_INF("RING CB");
 }
 
 /* AT CMD callback handler --------------------------------------------------------*/
@@ -489,17 +684,138 @@ static void on_cmd_registration_status(struct net_buf **buf, uint16_t len)
 	LOG_INF("CEREG: %c", cereg[0]);
 }
 
+static void on_cmd_ip_config_status(struct net_buf **buf, uint16_t len)
+{
+	size_t out_len;
+	char ipcfg[len];
+
+	out_len = net_buf_linearize(ipcfg, len, *buf, 2, len);
+
+	eclib_data.context_id = ipcfg[0] - CHAR_OFFSET;
+	if (ipcfg[2] == '0') {
+		eclib_data.ip_mode = IPV4_MODE;
+	} else {
+		eclib_data.ip_mode = IPV6_MODE;
+	}
+
+	LOG_INF("IPCFG: %d, %d", eclib_data.context_id, eclib_data.ip_mode);
+}
+
 static void on_cmd_nvmread(struct net_buf **buf, uint16_t len)
 {
 	int tmp = 0;
 	size_t out_len;
 	char nvmrd[3];
 
-	out_len = net_buf_linearize(nvmrd, 3, *buf, 0, len);
+	out_len = net_buf_linearize(nvmrd, sizeof(nvmrd), *buf, 2, len);
 	nvmrd[out_len] = '\0';
 
 	sscanf((const char *)nvmrd, "%x", (int *)&tmp);
 	eclib_data.cold_init_version = (uint8_t)tmp;
+}
+
+static void on_cmd_socket_create(struct net_buf **buf, uint16_t len)
+{
+	if (len == 1) {
+		for (uint8_t i = 0; i < MDM_MAX_SOCKETS; i++) {
+			eclib_data.sockets[i].context = NULL;
+			eclib_data.sockets[i].id = -1;
+		}
+	} else if (len == 3) {
+		size_t out_len;
+		char socket_id[3];
+
+		out_len = net_buf_linearize(socket_id, sizeof(socket_id), *buf, 2, len);
+		eclib_data.last_socket_id = socket_id[0] - CHAR_OFFSET;
+		LOG_INF("SOCKETCREATE: [%d]", eclib_data.last_socket_id);
+	}
+}
+
+static void on_cmd_socket_iprecv(struct net_buf **buf, uint16_t len)
+{
+	size_t out_len;
+	char socket_iprecv[3];
+
+	out_len = net_buf_linearize(socket_iprecv, sizeof(socket_iprecv), *buf, 2, len);
+	for (uint8_t i = 0; i < MDM_MAX_SOCKETS; i++) {
+		if (eclib_data.sockets[i].id == socket_iprecv[2] - CHAR_OFFSET &&
+		    eclib_data.sockets[i].context) {
+			eclib_read_socket(&eclib_data.sockets[i]);
+			break;
+		}
+	}
+	LOG_INF("IPRECV: [%d]", socket_iprecv[2] - CHAR_OFFSET);
+}
+
+static void on_cmd_socket_ipread(struct net_buf **buf, uint16_t len)
+{
+	struct net_buf *frag = NULL;
+	uint16_t offset;
+
+	size_t out_len;
+	char socket_iprecv[5];
+
+	out_len = net_buf_linearize(socket_iprecv, sizeof(socket_iprecv), *buf, 2, len);
+	for (uint8_t i = 0; i < MDM_MAX_SOCKETS; i++) {
+		if (eclib_data.sockets[i].id == socket_iprecv[2] - CHAR_OFFSET &&
+		    eclib_data.sockets[i].context) {
+			size_t pkt_size = socket_iprecv[4] - CHAR_OFFSET;
+			LOG_INF("IPREAD: [%d] len = %d", socket_iprecv[2] - CHAR_OFFSET, pkt_size);
+
+			(void)net_buf_findcrlf(*buf, &frag, &offset);
+			if (frag) {
+				/* clear out processed line (buffers) */
+				while (frag && *buf != frag) {
+					*buf = net_buf_frag_del(NULL, *buf);
+				}
+
+				net_buf_pull(*buf, offset);
+			}
+
+			net_buf_skipcrlf(buf);
+
+			struct net_pkt *pkt = net_pkt_rx_alloc_with_buffer(
+				net_context_get_iface(eclib_data.sockets[i].context), pkt_size,
+				eclib_data.sockets[i].family, eclib_data.sockets[i].ip_proto,
+				BUF_ALLOC_TIMEOUT);
+			if (!pkt) {
+				LOG_ERR("Failed net_pkt_get_reserve_rx!");
+				return;
+			}
+			net_pkt_set_context(pkt, eclib_data.sockets[i].context);
+
+			for (size_t k = 0; k < pkt_size; k++) {
+				char c = *(*buf)->data;
+
+				if (net_pkt_write_u8(pkt, c)) {
+					LOG_ERR("Unable to add data! Aborting!");
+					net_pkt_unref(pkt);
+					pkt = NULL;
+					return;
+				}
+
+				/* pull data from buf and advance to the next frag if needed */
+				net_buf_pull_u8(*buf);
+				if (!(*buf)->len) {
+					*buf = net_buf_frag_del(NULL, *buf);
+				}
+			}
+
+			/*net_pkt_set_overwrite(pkt, true);*/
+			net_pkt_cursor_init(pkt);
+
+			if (eclib_data.sockets[i].recv_cb) {
+				eclib_data.sockets[i].recv_cb(eclib_data.sockets[i].context, pkt,
+							      NULL, NULL, 0,
+							      eclib_data.sockets[i].recv_user_data);
+			} else {
+				LOG_INF("No callback ref for socket");
+				net_pkt_unref(pkt);
+			}
+
+			break;
+		}
+	}
 }
 
 #ifdef CONFIG_MODEM_ST87M01_RX_AT_FULL_LOG
@@ -510,7 +826,7 @@ static void on_cmd_fullmatch(struct net_buf **buf, uint16_t len)
 
 	out_len = net_buf_linearize(str, len + 1, *buf, 0, len);
 	str[out_len] = '\0';
-	LOG_ERR("RAW: [%s]", str);
+	LOG_DBG("RAW: [%s]", str);
 }
 #endif
 
@@ -580,4 +896,24 @@ static int net_buf_ncmp(struct net_buf *buf, const uint8_t *s2, size_t n)
 	}
 
 	return (n == 0) ? 0 : (*(frag->data + offset) - *s2);
+}
+
+char *net_sprint_ip_addr(const struct sockaddr *addr)
+{
+	static char buf[NET_IPV6_ADDR_LEN];
+
+#if defined(CONFIG_NET_IPV6)
+	if (addr->sa_family == AF_INET6) {
+		return net_addr_ntop(AF_INET6, &net_sin6(addr)->sin6_addr, buf, sizeof(buf));
+	} else
+#endif
+#if defined(CONFIG_NET_IPV4)
+		if (addr->sa_family == AF_INET) {
+		return net_addr_ntop(AF_INET, &net_sin(addr)->sin_addr, buf, sizeof(buf));
+	} else
+#endif
+	{
+		LOG_ERR("Unknown IP address family:%d", addr->sa_family);
+		return NULL;
+	}
 }
