@@ -100,6 +100,12 @@ static int offload_sendto(struct net_pkt *pkt, const struct sockaddr *dst_addr, 
 
 	int ret = eclib_send_to_socket(context->offload_context, dst_addr, pkt);
 
+	if (ret < 0) {
+		LOG_ERR("eclib_send_to_socket error: %d", ret);
+	} else {
+		net_pkt_unref(pkt);
+	}
+
 	if (cb) {
 		cb(context, ret, user_data);
 	}
