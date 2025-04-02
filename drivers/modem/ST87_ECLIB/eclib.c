@@ -366,13 +366,17 @@ int eclib_send_to_socket(eclib_socket_t *socket, const struct sockaddr *dst_addr
 	/* No socket created yet, create a new one */
 	switch (socket->type) {
 	case UDP:
-		eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, "AT#IPSENDUDP=%d,%d,%s,%d,%d,%d,%d", eclib_data.context_id,
-				   socket->id, net_sprint_ip_addr(dst_addr), dst_port, 0, 1,
-				   data_len);
+		eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, "AT#IPSENDUDP=%d,%d,%s,%d,%d,%d,%d",
+				   eclib_data.context_id, socket->id, net_sprint_ip_addr(dst_addr),
+				   dst_port, 0, 1, data_len);
 		break;
 	case TCP:
+		eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, "AT#IPSENDTCP=%d,%d,%d,%d",
+				   eclib_data.context_id, socket->id, 1, data_len);
 		break;
 	case RAW:
+		/* NOT IMPLEMENTED */
+		return -ENOTSUP;
 		break;
 	}
 
@@ -395,8 +399,24 @@ int eclib_send_to_socket(eclib_socket_t *socket, const struct sockaddr *dst_addr
 
 eclib_result_t eclib_read_socket(eclib_socket_t *socket)
 {
-	eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, "AT#IPREAD=%d,%d", eclib_data.context_id,
-			   socket->id);
+	if (eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, "AT#IPREAD=%d,%d", eclib_data.context_id,
+			       socket->id) == 0) {
+		return RESULT_KO;
+	}
+	return RESULT_OK;
+}
+
+eclib_result_t eclib_close_socket(eclib_socket_t *socket)
+{
+	if (eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, "AT#SOCKETCLOSE=%d,%d", eclib_data.context_id,
+			       socket->id) == 0) {
+		return RESULT_KO;
+	}
+
+	socket->id = -1;
+	socket->context = NULL;
+
+	return RESULT_OK;
 }
 
 /* Private functions --------------------------------------------------------*/

@@ -118,7 +118,9 @@ static int offload_recv(struct net_context *context, net_context_recv_cb_t cb, i
 {
 	LOG_DBG("OFFLOAD RECV");
 
-	eclib_recv_socket(context->offload_context, cb, user_data);
+	if (eclib_recv_socket(context->offload_context, cb, user_data) != RESULT_OK) {
+		return -EAGAIN;
+	}
 
 	return 0;
 }
@@ -126,6 +128,14 @@ static int offload_recv(struct net_context *context, net_context_recv_cb_t cb, i
 static int offload_put(struct net_context *context)
 {
 	LOG_DBG("OFFLOAD PUT");
+
+	if (eclib_close_socket(context->offload_context) != RESULT_OK) {
+		return -EAGAIN;
+	}
+
+	net_context_unref(context);
+
+	return 0;
 }
 
 static inline uint8_t *st87m01_get_mac()
