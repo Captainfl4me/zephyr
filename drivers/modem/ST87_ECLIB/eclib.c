@@ -366,7 +366,7 @@ int eclib_send_to_socket(eclib_socket_t *socket, const struct sockaddr *dst_addr
 	/* No socket created yet, create a new one */
 	switch (socket->type) {
 	case UDP:
-		eclib_send_sync_at(0, "AT#IPSENDUDP=%d,%d,%s,%d,%d,%d,%d", eclib_data.context_id,
+		eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, "AT#IPSENDUDP=%d,%d,%s,%d,%d,%d,%d", eclib_data.context_id,
 				   socket->id, net_sprint_ip_addr(dst_addr), dst_port, 0, 1,
 				   data_len);
 		break;
