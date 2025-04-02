@@ -32,7 +32,10 @@ struct eclib_data {
 	eclib_registration_status_t registration_status;
 	uint8_t context_id;
 	eclib_ip_mode_t ip_mode;
-	uint8_t last_socket_id;
+	int last_socket_id;
+	uint8_t last_ipread_size;
+
+	void (*next_is_raw_cb)(struct net_buf **buf, uint16_t len);
 
 	eclib_socket_t sockets[MDM_MAX_SOCKETS];
 };
@@ -117,6 +120,9 @@ eclib_result_t eclib_init(struct eclib_register *eclib_register)
 	eclib_data.context_id = 0;
 	eclib_data.ip_mode = 0;
 	eclib_data.last_socket_id = -1;
+
+	eclib_data.last_ipread_size = 0;
+	eclib_data.next_is_raw_cb = NULL;
 
 	for (uint8_t i = 0; i < MDM_MAX_SOCKETS; i++) {
 		eclib_data.sockets[i].context = NULL;
@@ -320,10 +326,10 @@ eclib_result_t eclib_create_socket(eclib_socket_t *socket)
 
 			break;
 		}
-	}
 
-	// Socket creation successful
-	socket->id = eclib_data.last_socket_id;
+		// Socket creation successful
+		socket->id = eclib_data.last_socket_id;
+	}
 
 	return RESULT_OK;
 }
@@ -399,8 +405,7 @@ int eclib_send_to_socket(eclib_socket_t *socket, const struct sockaddr *dst_addr
 
 eclib_result_t eclib_read_socket(eclib_socket_t *socket)
 {
-	if (eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, "AT#IPREAD=%d,%d", eclib_data.context_id,
-			       socket->id) == 0) {
+	if (eclib_send_sync_at(0, "AT#IPREAD=%d,%d", eclib_data.context_id, socket->id) == 0) {
 		return RESULT_KO;
 	}
 	return RESULT_OK;
@@ -572,44 +577,64 @@ static void eclib_rx()
 			}
 
 			/* look for matching data handlers */
-			for (int i = 0; i < ARRAY_SIZE(handlers); i++) {
-				if (net_buf_ncmp(rx_buf, handlers[i].cmd, handlers[i].cmd_len) ==
-				    0) {
-					/* found a matching handler */
-					LOG_DBG("MATCH %s (len:%u)", handlers[i].cmd, len);
-
-					/* skip cmd_len */
-					rx_buf = net_buf_skip(rx_buf, handlers[i].cmd_len);
-
-					/* locate next cr/lf */
-					frag = NULL;
-					len = net_buf_findcrlf(rx_buf, &frag, &offset);
-					if (!frag) {
-						break;
-					}
-
-					/* call handler */
-					if (handlers[i].func) {
-						handlers[i].func(&rx_buf, len);
-					}
-
-					frag = NULL;
-					/* make sure buf still has data */
-					if (!rx_buf) {
-						break;
-					}
-
-					/*
-					 * We've handled the current line
-					 * and need to exit the "search for
-					 * handler loop".  Let's skip any
-					 * "extra" data and look for the next
-					 * CR/LF, leaving us ready for the
-					 * next handler search.  Ignore the
-					 * length returned.
-					 */
-					(void)net_buf_findcrlf(rx_buf, &frag, &offset);
+			if (eclib_data.next_is_raw_cb != NULL) {
+				/* locate next cr/lf */
+				frag = NULL;
+				len = net_buf_findcrlf(rx_buf, &frag, &offset);
+				if (!frag) {
 					break;
+				}
+
+				/* call handler */
+				eclib_data.next_is_raw_cb(&rx_buf, len);
+
+				frag = NULL;
+				/* make sure buf still has data */
+				if (!rx_buf) {
+					break;
+				}
+
+				(void)net_buf_findcrlf(rx_buf, &frag, &offset);
+			} else {
+				for (int i = 0; i < ARRAY_SIZE(handlers); i++) {
+					if (net_buf_ncmp(rx_buf, handlers[i].cmd,
+							 handlers[i].cmd_len) == 0) {
+						/* found a matching handler */
+						LOG_DBG("MATCH %s (len:%u)", handlers[i].cmd, len);
+
+						/* skip cmd_len */
+						rx_buf = net_buf_skip(rx_buf, handlers[i].cmd_len);
+
+						/* locate next cr/lf */
+						frag = NULL;
+						len = net_buf_findcrlf(rx_buf, &frag, &offset);
+						if (!frag) {
+							break;
+						}
+
+						/* call handler */
+						if (handlers[i].func) {
+							handlers[i].func(&rx_buf, len);
+						}
+
+						frag = NULL;
+						/* make sure buf still has data */
+						if (!rx_buf) {
+							break;
+						}
+
+						/*
+						 * We've handled the current line
+						 * and need to exit the "search for
+						 * handler loop".  Let's skip any
+						 * "extra" data and look for the next
+						 * CR/LF, leaving us ready for the
+						 * next handler search.  Ignore the
+						 * length returned.
+						 */
+						(void)net_buf_findcrlf(rx_buf, &frag, &offset);
+						break;
+					}
 				}
 			}
 
@@ -757,6 +782,7 @@ static void on_cmd_socket_iprecv(struct net_buf **buf, uint16_t len)
 	char socket_iprecv[3];
 
 	out_len = net_buf_linearize(socket_iprecv, sizeof(socket_iprecv), *buf, 2, len);
+	LOG_INF("IPRECV: [%d]", socket_iprecv[2] - CHAR_OFFSET);
 	for (uint8_t i = 0; i < MDM_MAX_SOCKETS; i++) {
 		if (eclib_data.sockets[i].id == socket_iprecv[2] - CHAR_OFFSET &&
 		    eclib_data.sockets[i].context) {
@@ -764,38 +790,16 @@ static void on_cmd_socket_iprecv(struct net_buf **buf, uint16_t len)
 			break;
 		}
 	}
-	LOG_INF("IPRECV: [%d]", socket_iprecv[2] - CHAR_OFFSET);
 }
 
-static void on_cmd_socket_ipread(struct net_buf **buf, uint16_t len)
+static void on_cmd_socket_ipread_raw(struct net_buf **buf, uint16_t len)
 {
-	struct net_buf *frag = NULL;
-	uint16_t offset;
-
-	size_t out_len;
-	char socket_iprecv[5];
-
-	out_len = net_buf_linearize(socket_iprecv, sizeof(socket_iprecv), *buf, 2, len);
+	LOG_INF("IPREAD RAW DATA");
 	for (uint8_t i = 0; i < MDM_MAX_SOCKETS; i++) {
-		if (eclib_data.sockets[i].id == socket_iprecv[2] - CHAR_OFFSET &&
+		if (eclib_data.sockets[i].id == eclib_data.last_socket_id &&
 		    eclib_data.sockets[i].context) {
-			size_t pkt_size = socket_iprecv[4] - CHAR_OFFSET;
-			LOG_INF("IPREAD: [%d] len = %d", socket_iprecv[2] - CHAR_OFFSET, pkt_size);
-
-			(void)net_buf_findcrlf(*buf, &frag, &offset);
-			if (frag) {
-				/* clear out processed line (buffers) */
-				while (frag && *buf != frag) {
-					*buf = net_buf_frag_del(NULL, *buf);
-				}
-
-				net_buf_pull(*buf, offset);
-			}
-
-			net_buf_skipcrlf(buf);
-
 			struct net_pkt *pkt = net_pkt_rx_alloc_with_buffer(
-				net_context_get_iface(eclib_data.sockets[i].context), pkt_size,
+				net_context_get_iface(eclib_data.sockets[i].context), eclib_data.last_ipread_size,
 				eclib_data.sockets[i].family, eclib_data.sockets[i].ip_proto,
 				BUF_ALLOC_TIMEOUT);
 			if (!pkt) {
@@ -804,7 +808,7 @@ static void on_cmd_socket_ipread(struct net_buf **buf, uint16_t len)
 			}
 			net_pkt_set_context(pkt, eclib_data.sockets[i].context);
 
-			for (size_t k = 0; k < pkt_size; k++) {
+			for (size_t k = 0; k < eclib_data.last_ipread_size; k++) {
 				char c = *(*buf)->data;
 
 				if (net_pkt_write_u8(pkt, c)) {
@@ -832,6 +836,30 @@ static void on_cmd_socket_ipread(struct net_buf **buf, uint16_t len)
 				LOG_INF("No callback ref for socket");
 				net_pkt_unref(pkt);
 			}
+		}
+	}
+
+	eclib_data.next_is_raw_cb = NULL;
+	eclib_data.last_socket_id = -1;
+}
+static void on_cmd_socket_ipread(struct net_buf **buf, uint16_t len)
+{
+	struct net_buf *frag = NULL;
+	uint16_t offset;
+
+	size_t out_len;
+	char socket_iprecv[5];
+
+	out_len = net_buf_linearize(socket_iprecv, sizeof(socket_iprecv), *buf, 2, len);
+	for (uint8_t i = 0; i < MDM_MAX_SOCKETS; i++) {
+		if (eclib_data.sockets[i].id == socket_iprecv[2] - CHAR_OFFSET &&
+		    eclib_data.sockets[i].context) {
+			eclib_data.last_ipread_size = socket_iprecv[4] - CHAR_OFFSET;
+			eclib_data.last_socket_id = socket_iprecv[2] - CHAR_OFFSET;
+			LOG_INF("IPREAD: [%d] len = %d", eclib_data.last_socket_id,
+				eclib_data.last_ipread_size);
+
+			eclib_data.next_is_raw_cb = on_cmd_socket_ipread_raw;
 
 			break;
 		}
