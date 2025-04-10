@@ -30,6 +30,7 @@ struct eclib_data {
 	eclib_sim_status_t sim_status;
 	eclib_connection_status_t connection_status;
 	eclib_registration_status_t registration_status;
+	eclib_sleep_wakeup_status_t sleep_wakeup_status;
 	uint8_t context_id;
 	eclib_ip_mode_t ip_mode;
 	int last_socket_id;
@@ -83,6 +84,8 @@ static void on_cmd_sim_status(struct net_buf **buf, uint16_t len);
 static void on_cmd_connection_status(struct net_buf **buf, uint16_t len);
 static void on_cmd_registration_status(struct net_buf **buf, uint16_t len);
 static void on_cmd_ip_config_status(struct net_buf **buf, uint16_t len);
+static void on_cmd_sleep(struct net_buf **buf, uint16_t len);
+static void on_cmd_wakeup(struct net_buf **buf, uint16_t len);
 static void on_cmd_nvmread(struct net_buf **buf, uint16_t len);
 static void on_cmd_socket_create(struct net_buf **buf, uint16_t len);
 static void on_cmd_socket_iprecv(struct net_buf **buf, uint16_t len);
@@ -116,6 +119,7 @@ eclib_result_t eclib_init(struct eclib_register *eclib_register)
 	eclib_data.sim_status = SIM_STATUS_UNKNOWN;
 	eclib_data.connection_status = CONN_STATUS_UNKNOWN;
 	eclib_data.registration_status = NOT_REGISTERED;
+	eclib_data.sleep_wakeup_status = STATUS_WAKEUP;
 
 	eclib_data.context_id = 0;
 	eclib_data.ip_mode = 0;
@@ -187,6 +191,11 @@ unsigned int eclib_send_sync_at(unsigned int timeout, const char *format, ...)
 	uint32_t length_sent = vsprintf((char *)(mdm_tx_buf), (const char *)format, args);
 	va_end(args);
 
+	if (eclib_data.sleep_wakeup_status == STATUS_SLEEP) {
+		LOG_DBG("WAKEUP before send");
+		mdm_receiver_send(eclib_data.mctx, "\r\n", 2);
+	}
+
 	eclib_data.last_response_error = 0;
 	LOG_DBG("OUT: [%s]", mdm_tx_buf);
 	mdm_receiver_send(eclib_data.mctx, mdm_tx_buf, length_sent);
@@ -224,10 +233,10 @@ eclib_result_t eclib_cold_param_init(void)
 	// COLDINIT_STATE_CHECK_VERSION
 	if (eclib_data.cold_init_version == ST87EC_COLD_CONFIG_VERSION) {
 		/* Cold condig already up-to-date */
-		LOG_INF("ST87M01 NVM up-to-date");
+		LOG_DBG("ST87M01 NVM up-to-date");
 		return RESULT_OK;
 	}
-	LOG_INF("ST87M01 NVM config version mismatch: %d, rewriting config...",
+	LOG_DBG("ST87M01 NVM config version mismatch: %d, rewriting config...",
 		eclib_data.cold_init_version);
 
 	for (size_t k = 0; k < ST87EC_COLD_INIT_CMD_SIZE; k++) {
@@ -296,7 +305,7 @@ eclib_result_t eclib_create_socket(eclib_socket_t *socket)
 		switch (socket->type) {
 		case UDP:
 			if (eclib_send_sync_at(MDM_AT_CMD_TIMEOUT,
-					       "AT#SOCKETCREATE=%d,%d,%s,%d,%d,%d,%d",
+					       "AT#SOCKETCREATE=%d,%d,%s,%d,%d,%d",
 					       eclib_data.context_id, eclib_data.ip_mode, "UDP",
 					       SOCKET_SEND_TIMEOUT, SOCKET_RECEIVE_TIMEOUT,
 					       SOCKET_FRAME_RECEIVED_URC) == 0) {
@@ -546,6 +555,8 @@ static void eclib_rx()
 		CMD_HANDLER("+CSCON", connection_status),
 		CMD_HANDLER("+CEREG", registration_status),
 		CMD_HANDLER("#IPCFG", ip_config_status),
+		CMD_HANDLER("#SLEEP", sleep),
+		CMD_HANDLER("#WAKEUP", wakeup),
 		/* CONFIG RESPONSES */
 		CMD_HANDLER("#NVMRD", nvmread),
 		/* SOCKET RESPONSES */
@@ -599,9 +610,6 @@ static void eclib_rx()
 				for (int i = 0; i < ARRAY_SIZE(handlers); i++) {
 					if (net_buf_ncmp(rx_buf, handlers[i].cmd,
 							 handlers[i].cmd_len) == 0) {
-						/* found a matching handler */
-						LOG_DBG("MATCH %s (len:%u)", handlers[i].cmd, len);
-
 						/* skip cmd_len */
 						rx_buf = net_buf_skip(rx_buf, handlers[i].cmd_len);
 
@@ -654,7 +662,7 @@ static void eclib_rx()
 
 static void ring_ping_cb(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
-	LOG_INF("RING CB");
+	LOG_DBG("RING CB");
 }
 
 /* AT CMD callback handler --------------------------------------------------------*/
@@ -690,7 +698,7 @@ static void on_cmd_sim_status(struct net_buf **buf, uint16_t len)
 		eclib_data.sim_status = SIM_STATUS_UNKNOWN;
 	}
 
-	LOG_INF("SIMST: %c", simst[0]);
+	LOG_DBG("SIMST: %c", simst[0]);
 }
 
 static void on_cmd_connection_status(struct net_buf **buf, uint16_t len)
@@ -708,7 +716,7 @@ static void on_cmd_connection_status(struct net_buf **buf, uint16_t len)
 		eclib_data.connection_status = CONN_STATUS_UNKNOWN;
 	}
 
-	LOG_INF("CSCON: %c", cscon[0]);
+	LOG_DBG("CSCON: %c", cscon[0]);
 }
 
 static void on_cmd_registration_status(struct net_buf **buf, uint16_t len)
@@ -726,7 +734,7 @@ static void on_cmd_registration_status(struct net_buf **buf, uint16_t len)
 		eclib_data.connection_status = NOT_REGISTERED;
 	}
 
-	LOG_INF("CEREG: %c", cereg[0]);
+	LOG_DBG("CEREG: %c", cereg[0]);
 }
 
 static void on_cmd_ip_config_status(struct net_buf **buf, uint16_t len)
@@ -743,7 +751,18 @@ static void on_cmd_ip_config_status(struct net_buf **buf, uint16_t len)
 		eclib_data.ip_mode = IPV6_MODE;
 	}
 
-	LOG_INF("IPCFG: %d, %d", eclib_data.context_id, eclib_data.ip_mode);
+	LOG_DBG("IPCFG: %d, %d", eclib_data.context_id, eclib_data.ip_mode);
+}
+
+static void on_cmd_sleep(struct net_buf **buf, uint16_t len)
+{
+	LOG_DBG("SLEEP");
+	eclib_data.sleep_wakeup_status = STATUS_SLEEP;
+}
+static void on_cmd_wakeup(struct net_buf **buf, uint16_t len)
+{
+	LOG_DBG("WAKEUP");
+	eclib_data.sleep_wakeup_status = STATUS_WAKEUP;
 }
 
 static void on_cmd_nvmread(struct net_buf **buf, uint16_t len)
@@ -772,7 +791,7 @@ static void on_cmd_socket_create(struct net_buf **buf, uint16_t len)
 
 		out_len = net_buf_linearize(socket_id, sizeof(socket_id), *buf, 2, len);
 		eclib_data.last_socket_id = socket_id[0] - CHAR_OFFSET;
-		LOG_INF("SOCKETCREATE: [%d]", eclib_data.last_socket_id);
+		LOG_DBG("SOCKETCREATE: [%d]", eclib_data.last_socket_id);
 	}
 }
 
@@ -782,7 +801,7 @@ static void on_cmd_socket_iprecv(struct net_buf **buf, uint16_t len)
 	char socket_iprecv[3];
 
 	out_len = net_buf_linearize(socket_iprecv, sizeof(socket_iprecv), *buf, 2, len);
-	LOG_INF("IPRECV: [%d]", socket_iprecv[2] - CHAR_OFFSET);
+	LOG_DBG("IPRECV: [%d]", socket_iprecv[2] - CHAR_OFFSET);
 	for (uint8_t i = 0; i < MDM_MAX_SOCKETS; i++) {
 		if (eclib_data.sockets[i].id == socket_iprecv[2] - CHAR_OFFSET &&
 		    eclib_data.sockets[i].context) {
@@ -794,14 +813,14 @@ static void on_cmd_socket_iprecv(struct net_buf **buf, uint16_t len)
 
 static void on_cmd_socket_ipread_raw(struct net_buf **buf, uint16_t len)
 {
-	LOG_INF("IPREAD RAW DATA");
+	LOG_DBG("IPREAD RAW DATA");
 	for (uint8_t i = 0; i < MDM_MAX_SOCKETS; i++) {
 		if (eclib_data.sockets[i].id == eclib_data.last_socket_id &&
 		    eclib_data.sockets[i].context) {
 			struct net_pkt *pkt = net_pkt_rx_alloc_with_buffer(
-				net_context_get_iface(eclib_data.sockets[i].context), eclib_data.last_ipread_size,
-				eclib_data.sockets[i].family, eclib_data.sockets[i].ip_proto,
-				BUF_ALLOC_TIMEOUT);
+				net_context_get_iface(eclib_data.sockets[i].context),
+				eclib_data.last_ipread_size, eclib_data.sockets[i].family,
+				eclib_data.sockets[i].ip_proto, BUF_ALLOC_TIMEOUT);
 			if (!pkt) {
 				LOG_ERR("Failed net_pkt_get_reserve_rx!");
 				return;
@@ -833,7 +852,7 @@ static void on_cmd_socket_ipread_raw(struct net_buf **buf, uint16_t len)
 							      NULL, NULL, 0,
 							      eclib_data.sockets[i].recv_user_data);
 			} else {
-				LOG_INF("No callback ref for socket");
+				LOG_DBG("No callback ref for socket");
 				net_pkt_unref(pkt);
 			}
 		}
@@ -856,7 +875,7 @@ static void on_cmd_socket_ipread(struct net_buf **buf, uint16_t len)
 		    eclib_data.sockets[i].context) {
 			eclib_data.last_ipread_size = socket_iprecv[4] - CHAR_OFFSET;
 			eclib_data.last_socket_id = socket_iprecv[2] - CHAR_OFFSET;
-			LOG_INF("IPREAD: [%d] len = %d", eclib_data.last_socket_id,
+			LOG_DBG("IPREAD: [%d] len = %d", eclib_data.last_socket_id,
 				eclib_data.last_ipread_size);
 
 			eclib_data.next_is_raw_cb = on_cmd_socket_ipread_raw;

@@ -104,6 +104,14 @@ typedef enum {
 } eclib_ip_mode_t;
 
 /**
+ * Sleep/wakeup status of the module.
+ */
+typedef enum {
+	STATUS_SLEEP = 0,  /**< The Module is sleeping.              */
+	STATUS_WAKEUP = 1, /**< The module is woken up.              */
+} eclib_sleep_wakeup_status_t;
+
+/**
  * Values of SocketType.
  */
 typedef enum {
@@ -144,7 +152,8 @@ eclib_result_t eclib_wait_for_cereg_cscon();
 unsigned int eclib_send_sync_at(unsigned int timeout, const char *format, ...);
 unsigned int eclib_send_sync_with_bin_at(unsigned int timeout, const char *format, ...);
 eclib_result_t eclib_cold_param_init(void);
-eclib_result_t eclib_get_socket(struct net_context **context, enum net_ip_protocol ip_proto, sa_family_t family);
+eclib_result_t eclib_get_socket(struct net_context **context, enum net_ip_protocol ip_proto,
+				sa_family_t family);
 eclib_result_t eclib_create_socket(eclib_socket_t *socket);
 eclib_result_t eclib_recv_socket(eclib_socket_t *socket, net_context_recv_cb_t cb, void *user_data);
 eclib_result_t eclib_close_socket(eclib_socket_t *socket);
