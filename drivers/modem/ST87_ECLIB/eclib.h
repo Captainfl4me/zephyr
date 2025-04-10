@@ -117,7 +117,6 @@ typedef enum {
 typedef enum {
 	UDP = 0, /**< UDP socket type.*/
 	TCP = 1, /**< TCP socket type.*/
-	RAW = 2, /**< RAW socket type.*/
 } eclib_socket_type_t;
 
 typedef struct {

@@ -286,9 +286,6 @@ eclib_result_t eclib_get_socket(struct net_context **context, enum net_ip_protoc
 	case IPPROTO_UDP:
 		sock->type = UDP;
 		break;
-	case IPPROTO_RAW:
-		sock->type = RAW;
-		break;
 	default:
 		LOG_ERR("PROTOCOL NOT SUPPORTED!");
 		return -ENOSYS;
@@ -302,38 +299,24 @@ eclib_result_t eclib_create_socket(eclib_socket_t *socket)
 
 	/* No socket created yet, create a new one */
 	if (socket->id < 0) {
+		char type_udp[3] = "UDP";
+		char type_tcp[3] = "TCP";
+		char *type;
 		switch (socket->type) {
 		case UDP:
-			if (eclib_send_sync_at(MDM_AT_CMD_TIMEOUT,
-					       "AT#SOCKETCREATE=%d,%d,%s,%d,%d,%d",
-					       eclib_data.context_id, eclib_data.ip_mode, "UDP",
-					       SOCKET_SEND_TIMEOUT, SOCKET_RECEIVE_TIMEOUT,
-					       SOCKET_FRAME_RECEIVED_URC) == 0) {
-				LOG_ERR("SOCKETCREATE create timeout!");
-				return RESULT_KO;
-			}
+			type = type_udp;
 			break;
 		case TCP:
-			if (eclib_send_sync_at(MDM_AT_CMD_TIMEOUT,
-					       "AT#SOCKETCREATE=%d,%d,%s,%d,%d,%d",
-					       eclib_data.context_id, eclib_data.ip_mode, "TCP",
-					       SOCKET_SEND_TIMEOUT, SOCKET_RECEIVE_TIMEOUT,
-					       SOCKET_FRAME_RECEIVED_URC) == 0) {
-				LOG_ERR("SOCKETCREATE create timeout!");
-				return RESULT_KO;
-			}
+			type = type_tcp;
 			break;
-		case RAW:
-			if (eclib_send_sync_at(MDM_AT_CMD_TIMEOUT,
-					       "AT#SOCKETCREATE=%d,%d,%s,%d,%d,%d",
-					       eclib_data.context_id, eclib_data.ip_mode, "RAW",
-					       SOCKET_SEND_TIMEOUT, SOCKET_RECEIVE_TIMEOUT,
-					       SOCKET_FRAME_RECEIVED_URC) == 0) {
-				LOG_ERR("SOCKETCREATE create timeout!");
-				return RESULT_KO;
-			}
+		}
 
-			break;
+		if (type != NULL && eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, "AT#SOCKETCREATE=%d,%d,%s,%d,%d,%d",
+				       eclib_data.context_id, eclib_data.ip_mode, type,
+				       SOCKET_SEND_TIMEOUT, SOCKET_RECEIVE_TIMEOUT,
+				       SOCKET_FRAME_RECEIVED_URC) == 0) {
+			LOG_ERR("SOCKETCREATE create timeout!");
+			return RESULT_KO;
 		}
 
 		// Socket creation successful
@@ -388,10 +371,6 @@ int eclib_send_to_socket(eclib_socket_t *socket, const struct sockaddr *dst_addr
 	case TCP:
 		eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, "AT#IPSENDTCP=%d,%d,%d,%d",
 				   eclib_data.context_id, socket->id, 1, data_len);
-		break;
-	case RAW:
-		/* NOT IMPLEMENTED */
-		return -ENOTSUP;
 		break;
 	}
 
