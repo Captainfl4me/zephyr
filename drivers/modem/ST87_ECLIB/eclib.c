@@ -194,6 +194,9 @@ unsigned int eclib_send_sync_at(unsigned int timeout, const char *format, ...)
 	if (eclib_data.sleep_wakeup_status == STATUS_SLEEP) {
 		LOG_DBG("WAKEUP before send");
 		mdm_receiver_send(eclib_data.mctx, "\r\n", 2);
+
+		k_sem_reset(&eclib_data.response_sem);
+		ret = k_sem_take(&eclib_data.response_sem, K_MSEC(MDM_AT_CMD_WAKEUP_TIMEOUT));
 	}
 
 	eclib_data.last_response_error = 0;
@@ -311,7 +314,8 @@ eclib_result_t eclib_create_socket(eclib_socket_t *socket)
 			break;
 		}
 
-		if (type != NULL && eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, "AT#SOCKETCREATE=%d,%d,%s,%d,%d,%d",
+		if (type != NULL &&
+		    eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, "AT#SOCKETCREATE=%d,%d,%s,%d,%d,%d",
 				       eclib_data.context_id, eclib_data.ip_mode, type,
 				       SOCKET_SEND_TIMEOUT, SOCKET_RECEIVE_TIMEOUT,
 				       SOCKET_FRAME_RECEIVED_URC) == 0) {
@@ -742,6 +746,7 @@ static void on_cmd_wakeup(struct net_buf **buf, uint16_t len)
 {
 	LOG_DBG("WAKEUP");
 	eclib_data.sleep_wakeup_status = STATUS_WAKEUP;
+	k_sem_give(&eclib_data.response_sem);
 }
 
 static void on_cmd_nvmread(struct net_buf **buf, uint16_t len)

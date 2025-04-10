@@ -18,6 +18,7 @@
 /* Exported constants and macros-----------------------------------------------*/
 
 #define MDM_AT_CMD_TIMEOUT 5000
+#define MDM_AT_CMD_WAKEUP_TIMEOUT 5000
 #define MDM_RECV_MAX_BUF   30
 #define MDM_RECV_BUF_SIZE  128
 
