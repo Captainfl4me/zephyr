@@ -64,26 +64,11 @@ static int offload_bind(struct net_context *context, const struct sockaddr *addr
 	eclib_socket_t *sock = context->offload_context;
 
 	// TODO: create input socket ? (server socket)
-// 	int src_port = -1;
-// #if defined(CONFIG_NET_IPV6)
-// 	if (addr->sa_family == AF_INET6) {
-// 		src_port = ntohs(net_sin6(addr)->sin6_port);
-// 	} else
-// #endif
-// #if defined(CONFIG_NET_IPV4)
-// 		if (addr->sa_family == AF_INET) {
-// 		src_port = ntohs(net_sin(addr)->sin_port);
-// 	} else
-// #endif
-// 	{
-// 		LOG_ERR("Addr sa_family not supported: %d", addr->sa_family);
-// 		return -EINVAL;
-// 	}
-//
-// 	if (eclib_create_socket(sock, src_port) != RESULT_OK) {
-// 		LOG_ERR("Socket creation failed");
-// 		return -EOPNOTSUPP;
-// 	}
+
+	if (eclib_create_socket(sock) != RESULT_OK) {
+		LOG_ERR("Socket creation failed");
+		return -EOPNOTSUPP;
+	}
 
 	/* save bind address information */
 	sock->bind_addr.sa_family = addr->sa_family;
@@ -121,23 +106,7 @@ static int offload_connect(struct net_context *context, const struct sockaddr *a
 
 	eclib_socket_t *sock = context->offload_context;
 
-	int dst_port = -1;
-#if defined(CONFIG_NET_IPV6)
-	if (addr->sa_family == AF_INET6) {
-		dst_port = ntohs(net_sin6(addr)->sin6_port);
-	} else
-#endif
-#if defined(CONFIG_NET_IPV4)
-		if (addr->sa_family == AF_INET) {
-		dst_port = ntohs(net_sin(addr)->sin_port);
-	} else
-#endif
-	{
-		LOG_ERR("Addr sa_family not supported: %d", addr->sa_family);
-		return -EINVAL;
-	}
-
-	if (eclib_create_socket(sock, dst_port) != RESULT_OK) {
+	if (eclib_create_socket(sock) != RESULT_OK) {
 		LOG_ERR("Socket creation failed");
 		return -EOPNOTSUPP;
 	}
@@ -205,23 +174,7 @@ static int offload_sendto(struct net_pkt *pkt, const struct sockaddr *dst_addr, 
 	LOG_DBG("OFFLOAD SENDTO");
 	struct net_context *context = net_pkt_context(pkt);
 
-	int dst_port = -1;
-#if defined(CONFIG_NET_IPV6)
-	if (dst_addr->sa_family == AF_INET6) {
-		dst_port = ntohs(net_sin6(dst_addr)->sin6_port);
-	} else
-#endif
-#if defined(CONFIG_NET_IPV4)
-		if (dst_addr->sa_family == AF_INET) {
-		dst_port = ntohs(net_sin(dst_addr)->sin_port);
-	} else
-#endif
-	{
-		LOG_ERR("Addr sa_family not supported: %d", dst_addr->sa_family);
-		return -EINVAL;
-	}
-
-	if (eclib_create_socket(context->offload_context, dst_port) != RESULT_OK) {
+	if (eclib_create_socket(context->offload_context) != RESULT_OK) {
 		LOG_ERR("Socket creation failed");
 		return -EOPNOTSUPP;
 	}

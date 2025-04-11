@@ -310,7 +310,7 @@ eclib_result_t eclib_get_socket(struct net_context **context, enum net_ip_protoc
 	sock->context = *context;
 }
 
-eclib_result_t eclib_create_socket(eclib_socket_t *socket, unsigned int udp_port)
+eclib_result_t eclib_create_socket(eclib_socket_t *socket)
 {
 	/* No socket created yet, create a new one */
 	if (socket->id < 0) {
@@ -333,20 +333,18 @@ eclib_result_t eclib_create_socket(eclib_socket_t *socket, unsigned int udp_port
 		switch (socket->type) {
 		case UDP:
 			if (eclib_send_sync_at(
-				    MDM_AT_CMD_TIMEOUT, "AT#SOCKETCREATE=%d,%d,%s,%d,%d,%d,%d",
-				    eclib_data.context_id, ip_mode, "UDP", udp_port,
-				    SOCKET_SEND_TIMEOUT, SOCKET_RECEIVE_TIMEOUT,
-				    SOCKET_FRAME_RECEIVED_URC) == 0) {
+				    MDM_AT_CMD_TIMEOUT, "AT#SOCKETCREATE=%d,%d,%s,,%d,%d,%d",
+				    eclib_data.context_id, ip_mode, "UDP", SOCKET_SEND_TIMEOUT,
+				    SOCKET_RECEIVE_TIMEOUT, SOCKET_FRAME_RECEIVED_URC) == 0) {
 				LOG_ERR("SOCKETCREATE create timeout!");
 				return RESULT_KO;
 			}
 			break;
 		case TCP:
-			if (eclib_send_sync_at(MDM_AT_CMD_TIMEOUT,
-					       "AT#SOCKETCREATE=%d,%d,%s,%d,%d,%d",
-					       eclib_data.context_id, ip_mode, "TCP",
-					       SOCKET_SEND_TIMEOUT, SOCKET_RECEIVE_TIMEOUT,
-					       SOCKET_FRAME_RECEIVED_URC) == 0) {
+			if (eclib_send_sync_at(
+				    MDM_AT_CMD_TIMEOUT, "AT#SOCKETCREATE=%d,%d,%s,,%d,%d,%d",
+				    eclib_data.context_id, ip_mode, "TCP", SOCKET_SEND_TIMEOUT,
+				    SOCKET_RECEIVE_TIMEOUT, SOCKET_FRAME_RECEIVED_URC) == 0) {
 				LOG_ERR("SOCKETCREATE create timeout!");
 				return RESULT_KO;
 			}
@@ -381,28 +379,29 @@ int eclib_send_to_socket(eclib_socket_t *socket, const struct sockaddr *dst_addr
 	/* No socket created yet, create a new one */
 	switch (socket->type) {
 	case UDP:
+		struct sockaddr *addr = dst_addr;
 		if (dst_addr == NULL) {
-			dst_addr = &socket->conn_addr;
+			addr = &socket->conn_addr;
 		}
 
 		int dst_port = -1;
 #if defined(CONFIG_NET_IPV6)
-		if (dst_addr->sa_family == AF_INET6) {
-			dst_port = ntohs(net_sin6(dst_addr)->sin6_port);
+		if (addr->sa_family == AF_INET6) {
+			dst_port = ntohs(net_sin6(addr)->sin6_port);
 		} else
 #endif
 #if defined(CONFIG_NET_IPV4)
-			if (dst_addr->sa_family == AF_INET) {
-			dst_port = ntohs(net_sin(dst_addr)->sin_port);
+			if (addr->sa_family == AF_INET) {
+			dst_port = ntohs(net_sin(addr)->sin_port);
 		} else
 #endif
 		{
-			LOG_ERR("Addr sa_family not supported: %d", dst_addr->sa_family);
+			LOG_ERR("Addr sa_family not supported: %d", addr->sa_family);
 			return -EINVAL;
 		}
 
 		eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, "AT#IPSENDUDP=%d,%d,%s,%d,%d,%d,%d",
-				   eclib_data.context_id, socket->id, net_sprint_ip_addr(dst_addr),
+				   eclib_data.context_id, socket->id, net_sprint_ip_addr(addr),
 				   dst_port, 0, 1, data_len);
 		break;
 	case TCP:
