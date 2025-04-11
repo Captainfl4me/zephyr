@@ -170,10 +170,25 @@ eclib_result_t eclib_reset()
 	return (result);
 }
 
-eclib_result_t eclib_wait_for_cereg_cscon()
+int eclib_wakeup()
 {
-	while (eclib_data.registration_status != REGISTERED ||
-	       eclib_data.connection_status != CONN_STATUS_CONNECTED) {
+	int ret = 0;
+
+	if (eclib_data.sleep_wakeup_status == STATUS_SLEEP) {
+		LOG_DBG("WAKEUP before send");
+		mdm_receiver_send(eclib_data.mctx, "\r\n", 2);
+
+		k_sem_reset(&eclib_data.response_sem);
+		ret = k_sem_take(&eclib_data.response_sem, K_MSEC(MDM_AT_CMD_WAKEUP_TIMEOUT));
+	}
+
+	return ret;
+}
+
+eclib_result_t eclib_wait_for_cereg()
+{
+	eclib_wakeup();
+	while (eclib_data.registration_status != REGISTERED) {
 		k_msleep(5);
 	}
 
@@ -191,13 +206,7 @@ unsigned int eclib_send_sync_at(unsigned int timeout, const char *format, ...)
 	uint32_t length_sent = vsprintf((char *)(mdm_tx_buf), (const char *)format, args);
 	va_end(args);
 
-	if (eclib_data.sleep_wakeup_status == STATUS_SLEEP) {
-		LOG_DBG("WAKEUP before send");
-		mdm_receiver_send(eclib_data.mctx, "\r\n", 2);
-
-		k_sem_reset(&eclib_data.response_sem);
-		ret = k_sem_take(&eclib_data.response_sem, K_MSEC(MDM_AT_CMD_WAKEUP_TIMEOUT));
-	}
+	ret = eclib_wakeup();
 
 	eclib_data.last_response_error = 0;
 	LOG_DBG("OUT: [%s]", mdm_tx_buf);
@@ -298,13 +307,13 @@ eclib_result_t eclib_get_socket(struct net_context **context, enum net_ip_protoc
 
 eclib_result_t eclib_create_socket(eclib_socket_t *socket)
 {
-	eclib_wait_for_cereg_cscon();
+	eclib_wait_for_cereg();
 
 	/* No socket created yet, create a new one */
 	if (socket->id < 0) {
-		char type_udp[3] = "UDP";
-		char type_tcp[3] = "TCP";
-		char *type;
+		char type_udp[4] = "UDP";
+		char type_tcp[4] = "TCP";
+		char *type = NULL;
 		switch (socket->type) {
 		case UDP:
 			type = type_udp;
@@ -314,12 +323,16 @@ eclib_result_t eclib_create_socket(eclib_socket_t *socket)
 			break;
 		}
 
-		if (type != NULL &&
-		    eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, "AT#SOCKETCREATE=%d,%d,%s,%d,%d,%d",
-				       eclib_data.context_id, eclib_data.ip_mode, type,
-				       SOCKET_SEND_TIMEOUT, SOCKET_RECEIVE_TIMEOUT,
-				       SOCKET_FRAME_RECEIVED_URC) == 0) {
-			LOG_ERR("SOCKETCREATE create timeout!");
+		if (type != NULL) {
+			if (eclib_send_sync_at(MDM_AT_CMD_TIMEOUT,
+					       "AT#SOCKETCREATE=%d,%d,%s,%d,%d,%d",
+					       eclib_data.context_id, eclib_data.ip_mode, type,
+					       SOCKET_SEND_TIMEOUT, SOCKET_RECEIVE_TIMEOUT,
+					       SOCKET_FRAME_RECEIVED_URC) == 0) {
+				LOG_ERR("SOCKETCREATE create timeout!");
+				return RESULT_KO;
+			}
+		} else {
 			return RESULT_KO;
 		}
 
@@ -341,33 +354,34 @@ eclib_result_t eclib_recv_socket(eclib_socket_t *socket, net_context_recv_cb_t c
 int eclib_send_to_socket(eclib_socket_t *socket, const struct sockaddr *dst_addr,
 			 struct net_pkt *pkt)
 {
-	eclib_wait_for_cereg_cscon();
+	eclib_wait_for_cereg();
 
 	if (socket->id < 0) {
 		LOG_ERR("Socket does not have allocated ID");
 		return -EINVAL;
 	}
 
-	int ret, dst_port = -1;
-#if defined(CONFIG_NET_IPV6)
-	if (dst_addr->sa_family == AF_INET6) {
-		dst_port = ntohs(net_sin6(dst_addr)->sin6_port);
-	} else
-#endif
-#if defined(CONFIG_NET_IPV4)
-		if (dst_addr->sa_family == AF_INET) {
-		dst_port = ntohs(net_sin(dst_addr)->sin_port);
-	} else
-#endif
-	{
-		LOG_ERR("Addr sa_family not supported: %d", dst_addr->sa_family);
-		return -EINVAL;
-	}
-
+	int ret;
 	size_t data_len = net_buf_frags_len(pkt->frags);
 	/* No socket created yet, create a new one */
 	switch (socket->type) {
 	case UDP:
+		int dst_port = -1;
+#if defined(CONFIG_NET_IPV6)
+		if (dst_addr->sa_family == AF_INET6) {
+			dst_port = ntohs(net_sin6(dst_addr)->sin6_port);
+		} else
+#endif
+#if defined(CONFIG_NET_IPV4)
+			if (dst_addr->sa_family == AF_INET) {
+			dst_port = ntohs(net_sin(dst_addr)->sin_port);
+		} else
+#endif
+		{
+			LOG_ERR("Addr sa_family not supported: %d", dst_addr->sa_family);
+			return -EINVAL;
+		}
+
 		eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, "AT#IPSENDUDP=%d,%d,%s,%d,%d,%d,%d",
 				   eclib_data.context_id, socket->id, net_sprint_ip_addr(dst_addr),
 				   dst_port, 0, 1, data_len);
@@ -432,7 +446,8 @@ eclib_result_t eclib_gpio_init(void)
 		result = RESULT_KO;
 	}
 
-	/* Configure a GPI for ST87 ring pin, when ring pin rises call ST87EC_Lib_Hal_RingPinIsr */
+	/* Configure a GPI for ST87 ring pin, when ring pin rises call
+	 * ST87EC_Lib_Hal_RingPinIsr */
 	if (gpio_pin_configure_dt(eclib_data.ring_gpio, GPIO_INPUT) < 0) {
 		result = RESULT_KO;
 	} else {
@@ -821,7 +836,8 @@ static void on_cmd_socket_ipread_raw(struct net_buf **buf, uint16_t len)
 					return;
 				}
 
-				/* pull data from buf and advance to the next frag if needed */
+				/* pull data from buf and advance to the next frag if needed
+				 */
 				net_buf_pull_u8(*buf);
 				if (!(*buf)->len) {
 					*buf = net_buf_frag_del(NULL, *buf);

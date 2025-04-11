@@ -61,6 +61,33 @@ static int offload_get(sa_family_t family, enum net_sock_type type, enum net_ip_
 static int offload_bind(struct net_context *context, const struct sockaddr *addr, socklen_t addrlen)
 {
 	LOG_DBG("OFFLOAD BIND");
+	eclib_socket_t *sock = context->offload_context;
+
+	if (eclib_create_socket(sock) != RESULT_OK) {
+		LOG_ERR("Socket creation failed");
+		return -EOPNOTSUPP;
+	}
+
+	/* save bind address information */
+	sock->bind_addr.sa_family = addr->sa_family;
+#if defined(CONFIG_NET_IPV6)
+	if (addr->sa_family == AF_INET6) {
+		net_ipaddr_copy(&net_sin6(&(sock->bind_addr))->sin6_addr,
+				&net_sin6(addr)->sin6_addr);
+		net_sin6(&(sock->bind_addr))->sin6_port = net_sin6(addr)->sin6_port;
+	} else
+#endif
+#if defined(CONFIG_NET_IPV4)
+		if (addr->sa_family == AF_INET) {
+		net_ipaddr_copy(&net_sin(&(sock->bind_addr))->sin_addr, &net_sin(addr)->sin_addr);
+		net_sin(&(sock->bind_addr))->sin_port = net_sin(addr)->sin_port;
+	} else
+#endif
+	{
+		return -EPFNOSUPPORT;
+	}
+
+	return 0;
 }
 
 static int offload_listen(struct net_context *context, int backlog)

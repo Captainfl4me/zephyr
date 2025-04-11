@@ -128,6 +128,9 @@ typedef struct {
 	sa_family_t family;
 	enum net_ip_protocol ip_proto;
 
+	/** Saved binded address */
+	struct sockaddr bind_addr;
+
 	/** socket callbacks */
 	net_context_recv_cb_t recv_cb;
 	void *recv_user_data;
@@ -148,6 +151,7 @@ static uint8_t mdm_recv_buf[CONFIG_MODEM_ST87M01_MAX_RX_DATA_LENGTH];
 
 eclib_result_t eclib_init(struct eclib_register *eclib_register);
 eclib_result_t eclib_reset();
+int eclib_wakeup();
 eclib_result_t eclib_wait_for_cereg_cscon();
 unsigned int eclib_send_sync_at(unsigned int timeout, const char *format, ...);
 unsigned int eclib_send_sync_with_bin_at(unsigned int timeout, const char *format, ...);
