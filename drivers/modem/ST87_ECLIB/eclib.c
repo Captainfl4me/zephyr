@@ -145,6 +145,8 @@ eclib_result_t eclib_init(struct eclib_register *eclib_register)
 	/* Trig cold parameter initialization sequence */
 	status += (uint8_t)eclib_cold_param_init();
 
+	// TODO: retrieve mdm_manufacturer, mdm_model, mdm_revision, <mdm_imei, mdm_imsi>
+
 	if (status > 0) {
 		result = RESULT_KO;
 	}
@@ -180,12 +182,21 @@ int eclib_wakeup()
 {
 	int ret = 0;
 
+	mdm_receiver_send(eclib_data.mctx, "\r", 1);
 	if (eclib_data.sleep_wakeup_status == STATUS_SLEEP) {
-		LOG_DBG("WAKEUP before send");
-		mdm_receiver_send(eclib_data.mctx, "\r\n", 2);
-
 		k_sem_reset(&eclib_data.response_sem);
 		ret = k_sem_take(&eclib_data.response_sem, K_MSEC(MDM_AT_CMD_WAKEUP_TIMEOUT));
+	}
+
+	return ret;
+}
+
+int eclib_sleep()
+{
+	int ret = 0;
+
+	if (eclib_data.sleep_wakeup_status != STATUS_SLEEP) {
+		eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, "AT#SLEEPMODE");
 	}
 
 	return ret;
@@ -228,7 +239,6 @@ eclib_result_t eclib_cold_param_init(void)
 	eclib_result_t result = RESULT_OK;
 	uint32_t tmp;
 
-	// COLDINIT_STATE_INIT
 	if (eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, ST87EC_NVMRD_CMD) == 0) {
 		LOG_ERR("ST87EC_NVMRD_CMD timeout!");
 		return RESULT_KO;
@@ -238,7 +248,6 @@ eclib_result_t eclib_cold_param_init(void)
 		return RESULT_KO;
 	}
 
-	// COLDINIT_STATE_CHECK_VERSION
 	if (eclib_data.cold_init_version == ST87EC_COLD_CONFIG_VERSION) {
 		/* Cold condig already up-to-date */
 		LOG_DBG("ST87M01 NVM up-to-date");
@@ -301,33 +310,47 @@ eclib_result_t eclib_get_socket(struct net_context **context, enum net_ip_protoc
 	sock->context = *context;
 }
 
-eclib_result_t eclib_create_socket(eclib_socket_t *socket)
+eclib_result_t eclib_create_socket(eclib_socket_t *socket, unsigned int udp_port)
 {
 	/* No socket created yet, create a new one */
 	if (socket->id < 0) {
-		char type_udp[4] = "UDP";
-		char type_tcp[4] = "TCP";
-		char *type = NULL;
-		switch (socket->type) {
-		case UDP:
-			type = type_udp;
-			break;
-		case TCP:
-			type = type_tcp;
-			break;
+		int ip_mode = -1;
+#if defined(CONFIG_NET_IPV6)
+		if (socket->family == AF_INET6) {
+			ip_mode = 1;
+		} else
+#endif
+#if defined(CONFIG_NET_IPV4)
+			if (socket->family == AF_INET) {
+			ip_mode = 0;
+		} else
+#endif
+		{
+			LOG_ERR("Addr sa_family not supported: %d", socket->family);
+			return -EINVAL;
 		}
 
-		if (type != NULL) {
+		switch (socket->type) {
+		case UDP:
+			if (eclib_send_sync_at(
+				    MDM_AT_CMD_TIMEOUT, "AT#SOCKETCREATE=%d,%d,%s,%d,%d,%d,%d",
+				    eclib_data.context_id, ip_mode, "UDP", udp_port,
+				    SOCKET_SEND_TIMEOUT, SOCKET_RECEIVE_TIMEOUT,
+				    SOCKET_FRAME_RECEIVED_URC) == 0) {
+				LOG_ERR("SOCKETCREATE create timeout!");
+				return RESULT_KO;
+			}
+			break;
+		case TCP:
 			if (eclib_send_sync_at(MDM_AT_CMD_TIMEOUT,
 					       "AT#SOCKETCREATE=%d,%d,%s,%d,%d,%d",
-					       eclib_data.context_id, eclib_data.ip_mode, type,
+					       eclib_data.context_id, ip_mode, "TCP",
 					       SOCKET_SEND_TIMEOUT, SOCKET_RECEIVE_TIMEOUT,
 					       SOCKET_FRAME_RECEIVED_URC) == 0) {
 				LOG_ERR("SOCKETCREATE create timeout!");
 				return RESULT_KO;
 			}
-		} else {
-			return RESULT_KO;
+			break;
 		}
 
 		// Socket creation successful
@@ -358,6 +381,10 @@ int eclib_send_to_socket(eclib_socket_t *socket, const struct sockaddr *dst_addr
 	/* No socket created yet, create a new one */
 	switch (socket->type) {
 	case UDP:
+		if (dst_addr == NULL) {
+			dst_addr = &socket->conn_addr;
+		}
+
 		int dst_port = -1;
 #if defined(CONFIG_NET_IPV6)
 		if (dst_addr->sa_family == AF_INET6) {
@@ -411,13 +438,17 @@ eclib_result_t eclib_read_socket(eclib_socket_t *socket)
 
 eclib_result_t eclib_close_socket(eclib_socket_t *socket)
 {
-	if (eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, "AT#SOCKETCLOSE=%d,%d", eclib_data.context_id,
-			       socket->id) == 0) {
-		return RESULT_KO;
+	if (socket->id >= 0) {
+		if (eclib_send_sync_at(MDM_AT_CMD_TIMEOUT, "AT#SOCKETCLOSE=%d,%d",
+				       eclib_data.context_id, socket->id) == 0) {
+			return RESULT_KO;
+		}
 	}
 
 	socket->id = -1;
 	socket->context = NULL;
+
+	eclib_sleep();
 
 	return RESULT_OK;
 }
@@ -653,6 +684,7 @@ static void eclib_rx()
 static void ring_ping_cb(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
 	LOG_DBG("RING CB");
+	// TODO: implement RING call
 }
 
 /* AT CMD callback handler --------------------------------------------------------*/
@@ -758,6 +790,10 @@ static void on_cmd_ip_config_status(struct net_buf **buf, uint16_t len)
 
 			net_if_ipv4_addr_add(eclib_data.iface, &eclib_data.ipv4_addr, NET_ADDR_DHCP,
 					     0);
+			// TODO: retrieve netmask + gateway using:
+			// net_if_ipv4_set_netmask_by_addr(...), net_if_ipv4_set_gw(...)
+		} else {
+			// TODO: handle IPV6
 		}
 
 		LOG_DBG("IP: [%d] %s", len, ipcfg + 4);
@@ -803,6 +839,9 @@ static void on_cmd_socket_create(struct net_buf **buf, uint16_t len)
 		out_len = net_buf_linearize(socket_id, sizeof(socket_id), *buf, 2, len);
 		eclib_data.last_socket_id = socket_id[0] - CHAR_OFFSET;
 		LOG_DBG("SOCKETCREATE: [%d]", eclib_data.last_socket_id);
+	} else {
+		// TODO: parse existing socket from ST87 to populate eclib_data.sockets array with
+		// actual values
 	}
 }
 
