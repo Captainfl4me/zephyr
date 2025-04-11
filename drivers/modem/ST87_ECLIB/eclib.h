@@ -150,9 +150,9 @@ static uint8_t mdm_recv_buf[CONFIG_MODEM_ST87M01_MAX_RX_DATA_LENGTH];
 /* Exported functions --------------------------------------------------------*/
 
 eclib_result_t eclib_init(struct eclib_register *eclib_register);
+void eclib_register_iface(struct net_if *iface);
 eclib_result_t eclib_reset();
 int eclib_wakeup();
-eclib_result_t eclib_wait_for_cereg_cscon();
 unsigned int eclib_send_sync_at(unsigned int timeout, const char *format, ...);
 unsigned int eclib_send_sync_with_bin_at(unsigned int timeout, const char *format, ...);
 eclib_result_t eclib_cold_param_init(void);

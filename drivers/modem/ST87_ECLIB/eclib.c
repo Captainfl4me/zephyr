@@ -19,6 +19,7 @@ LOG_MODULE_REGISTER(eclib, CONFIG_MODEM_LOG_LEVEL);
  * Static Data for ECLIB
  */
 struct eclib_data {
+	struct net_if *iface;
 	struct mdm_receiver_context *mctx;
 	struct gpio_dt_spec *reset_gpio;
 	struct gpio_dt_spec *ring_gpio;
@@ -39,6 +40,7 @@ struct eclib_data {
 	void (*next_is_raw_cb)(struct net_buf **buf, uint16_t len);
 
 	eclib_socket_t sockets[MDM_MAX_SOCKETS];
+	struct in_addr ipv4_addr;
 };
 
 /**
@@ -149,6 +151,10 @@ eclib_result_t eclib_init(struct eclib_register *eclib_register)
 
 	return (result);
 }
+void eclib_register_iface(struct net_if *iface)
+{
+	eclib_data.iface = iface;
+}
 
 eclib_result_t eclib_reset()
 {
@@ -183,16 +189,6 @@ int eclib_wakeup()
 	}
 
 	return ret;
-}
-
-eclib_result_t eclib_wait_for_cereg()
-{
-	eclib_wakeup();
-	while (eclib_data.registration_status != REGISTERED) {
-		k_msleep(5);
-	}
-
-	return RESULT_OK;
 }
 
 unsigned int eclib_send_sync_at(unsigned int timeout, const char *format, ...)
@@ -307,8 +303,6 @@ eclib_result_t eclib_get_socket(struct net_context **context, enum net_ip_protoc
 
 eclib_result_t eclib_create_socket(eclib_socket_t *socket)
 {
-	eclib_wait_for_cereg();
-
 	/* No socket created yet, create a new one */
 	if (socket->id < 0) {
 		char type_udp[4] = "UDP";
@@ -354,8 +348,6 @@ eclib_result_t eclib_recv_socket(eclib_socket_t *socket, net_context_recv_cb_t c
 int eclib_send_to_socket(eclib_socket_t *socket, const struct sockaddr *dst_addr,
 			 struct net_pkt *pkt)
 {
-	eclib_wait_for_cereg();
-
 	if (socket->id < 0) {
 		LOG_ERR("Socket does not have allocated ID");
 		return -EINVAL;
@@ -728,6 +720,7 @@ static void on_cmd_registration_status(struct net_buf **buf, uint16_t len)
 	/* 5 = registered, roaming      */
 	if (cereg[0] == '1' || cereg[0] == '5') {
 		eclib_data.registration_status = REGISTERED;
+		eclib_send_sync_at(0, "AT#IPCFG?");
 	} else {
 		eclib_data.connection_status = NOT_REGISTERED;
 	}
@@ -743,13 +736,32 @@ static void on_cmd_ip_config_status(struct net_buf **buf, uint16_t len)
 	out_len = net_buf_linearize(ipcfg, len, *buf, 2, len);
 
 	eclib_data.context_id = ipcfg[0] - CHAR_OFFSET;
-	if (ipcfg[2] == '0') {
-		eclib_data.ip_mode = IPV4_MODE;
-	} else {
-		eclib_data.ip_mode = IPV6_MODE;
-	}
 
-	LOG_DBG("IPCFG: %d, %d", eclib_data.context_id, eclib_data.ip_mode);
+	if (len == 7) {
+		if (ipcfg[2] == '0') {
+			eclib_data.ip_mode = IPV4_MODE;
+		} else {
+			eclib_data.ip_mode = IPV6_MODE;
+		}
+		if (ipcfg[4] == '0') {
+			net_if_ipv4_addr_rm(eclib_data.iface, &eclib_data.ipv4_addr);
+		} else if (ipcfg[4] == '2') {
+			eclib_send_sync_at(0, "AT#IPCFG?");
+		}
+		LOG_DBG("IPCFG: %d, %d", eclib_data.context_id, eclib_data.ip_mode);
+	} else {
+		int ret = 0;
+
+		if (eclib_data.ip_mode == IPV4_MODE) {
+			net_if_ipv4_addr_rm(eclib_data.iface, &eclib_data.ipv4_addr);
+			ret = net_addr_pton(AF_INET, ipcfg + 4, &eclib_data.ipv4_addr);
+
+			net_if_ipv4_addr_add(eclib_data.iface, &eclib_data.ipv4_addr, NET_ADDR_DHCP,
+					     0);
+		}
+
+		LOG_DBG("IP: [%d] %s", len, ipcfg + 4);
+	}
 }
 
 static void on_cmd_sleep(struct net_buf **buf, uint16_t len)

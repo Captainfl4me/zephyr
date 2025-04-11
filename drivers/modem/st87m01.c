@@ -184,6 +184,7 @@ static void offload_iface_init(struct net_if *iface)
 	net_if_set_link_addr(iface, st87m01_get_mac(), sizeof(mdata.mac_addr), NET_LINK_ETHERNET);
 
 	mdata.iface = iface;
+	eclib_register_iface(iface);
 }
 
 /* Register device with the networking stack. */
